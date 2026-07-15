@@ -10,6 +10,7 @@ Teclas:
     Q / A       attack  -/+
     W / S       decay   -/+
     M           metadata (now playing) on/off
+    C           vista: caratula+disco / disco / caratula / nada
     ESC         salir
 
 Requiere: pip install pygame-ce websockets
@@ -18,12 +19,15 @@ Requiere: pip install pygame-ce websockets
 from __future__ import annotations
 
 import argparse
+import io
+import math
 
 import numpy as np
 import pygame
 
 from .engine import Engine
 from .metadata import MetadataMonitor
+from .thumbnail import NO_ART, ThumbnailMonitor
 
 BG = (14, 14, 18)
 GRID = (34, 34, 42)
@@ -33,8 +37,26 @@ META_BG = (24, 24, 30)
 META_TEXT = (225, 225, 232)
 META_TEXT_PAUSED = (140, 140, 150)
 META_BAR_H = 28
+# --- caratula (label sobre el vinilo) ---
+THUMB_BACKDROP = (34, 36, 48, 235)   # relleno del marco: mas notorio que el fondo (14,14,18)
+THUMB_BORDER = (96, 108, 142)        # trazo del borde: acento frio, claro pero oscuro
+THUMB_BORDER_W = 3
+THUMB_MARGIN = 12          # grosor del marco alrededor de la caratula
+THUMB_RADIUS_FRAC = 0.05   # radio de esquinas redondeadas, como fraccion del lado
+THUMB_FRACTION = 0.32      # lado del recuadro de la caratula, como fraccion del lado menor de la ventana
+THUMB_MIN_PX = 64
+THUMB_MAX_PX = 320
+
+# --- disco de vinilo (detras de la caratula) ---
+VINYL_ART_RATIO = 1.7      # diametro del disco = lado de la caratula * esto
+VINYL_BODY = (20, 20, 26)
+VINYL_GROOVE = (44, 46, 58)
+VINYL_LABEL = (30, 31, 40)   # circulo central (tapado por la caratula si existe)
+VINYL_SHEEN = (46, 50, 66)   # brillo aditivo que hace visible el giro
+VINYL_SPIN_DPS = 45.0        # grados por segundo mientras hay reproduccion
 
 DEFAULT_METADATA_URL = "ws://100.97.196.102:25012/ws/media-info"
+DEFAULT_THUMBNAIL_URL = "ws://100.97.196.102:25012/ws/thumbnail"
 
 
 def draw_channel(surf, band_h, rect, color, reverse=False):
@@ -64,6 +86,89 @@ def draw_metadata_bar(surf, font, w, info) -> None:
     surf.blit(text, (x, y))
 
 
+def thumb_box(w, h) -> int:
+    """Lado del recuadro donde entra la caratula, acotado a THUMB_MIN/MAX_PX."""
+    return max(THUMB_MIN_PX, min(int(min(w, h) * THUMB_FRACTION), THUMB_MAX_PX))
+
+
+def fit_within(orig_size, box) -> tuple[int, int]:
+    """Tamano que conserva el aspecto y cabe en un cuadrado de lado box."""
+    ow, oh = orig_size
+    scale = min(box / ow, box / oh)
+    return max(1, int(ow * scale)), max(1, int(oh * scale))
+
+
+def _rounded_mask(size, radius, ss=4) -> pygame.Surface:
+    """Mascara blanca con esquinas redondeadas, suavizada por supersampling."""
+    w, h = size
+    big = pygame.Surface((w * ss, h * ss), pygame.SRCALPHA)
+    pygame.draw.rect(big, (255, 255, 255, 255), big.get_rect(), border_radius=radius * ss)
+    return pygame.transform.smoothscale(big, (w, h))
+
+
+def round_corners(surf, radius) -> pygame.Surface:
+    """Devuelve una copia de surf con las esquinas redondeadas (bordes suaves)."""
+    out = surf.convert_alpha()
+    mask = _rounded_mask(out.get_size(), radius)
+    out.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+    return out
+
+
+def build_art_panel(art_surf, box) -> pygame.Surface:
+    """Caratula escalada + esquinas redondeadas, montada sobre un marco
+    redondeado (fondo THUMB_BACKDROP + borde THUMB_BORDER). Se rehace solo
+    cuando cambia la imagen o el tamano de ventana, no por frame."""
+    aw, ah = fit_within(art_surf.get_size(), box)
+    art = pygame.transform.smoothscale(art_surf, (aw, ah))
+    art = round_corners(art, max(1, int(min(aw, ah) * THUMB_RADIUS_FRAC)))
+
+    m = THUMB_MARGIN
+    pw, ph = aw + 2 * m, ah + 2 * m
+    pr = max(1, int(min(pw, ph) * THUMB_RADIUS_FRAC))
+    ss = 4
+    big = pygame.Surface((pw * ss, ph * ss), pygame.SRCALPHA)
+    pygame.draw.rect(big, THUMB_BACKDROP, big.get_rect(), border_radius=pr * ss)
+    pygame.draw.rect(big, THUMB_BORDER, big.get_rect(),
+                     width=THUMB_BORDER_W * ss, border_radius=pr * ss)
+    panel = pygame.transform.smoothscale(big, (pw, ph))
+
+    panel.blit(art, (m, m))
+    return panel
+
+
+def make_vinyl(diameter, ss=2) -> pygame.Surface:
+    """Disco de vinilo: cuerpo + surcos + label central + brillo aditivo (que
+    hace visible el giro). Renderizado a ss veces y reducido, para bordes
+    suaves. Cacheado por diametro."""
+    d = diameter
+    big = d * ss
+    surf = pygame.Surface((big, big), pygame.SRCALPHA)
+    c = big // 2
+    r = c - 1
+    pygame.draw.circle(surf, VINYL_BODY, (c, c), r)
+
+    step = max(2, int(r * 0.028))
+    for gr in range(int(r * 0.34), r, step):
+        pygame.draw.circle(surf, VINYL_GROOVE, (c, c), gr, ss)
+
+    pygame.draw.circle(surf, VINYL_LABEL, (c, c), int(r * 0.33))
+    pygame.draw.circle(surf, VINYL_BODY, (c, c), max(2, int(r * 0.02)))  # agujero del eje
+
+    # Brillo: dos barras opuestas, difuminadas por reduccion/ampliacion. En
+    # BLEND_RGB_ADD el alpha del destino no cambia, asi que fuera del disco
+    # (alpha 0) el brillo no aparece: se recorta solo al circulo.
+    sheen = pygame.Surface((big, big), pygame.SRCALPHA)
+    bar_w = max(1, int(big * 0.09))
+    for ang in (0.5, 0.5 + math.pi):
+        dx, dy = math.cos(ang) * r, math.sin(ang) * r
+        pygame.draw.line(sheen, VINYL_SHEEN, (c - dx, c - dy), (c + dx, c + dy), bar_w)
+    blur = max(4, big // 6)
+    sheen = pygame.transform.smoothscale(pygame.transform.smoothscale(sheen, (blur, blur)), (big, big))
+    surf.blit(sheen, (0, 0), special_flags=pygame.BLEND_RGB_ADD)
+
+    return pygame.transform.smoothscale(surf, (d, d))
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--source", default="fb2k", choices=["fb2k", "loopback", "mic", "tone"])
@@ -81,6 +186,8 @@ def main() -> None:
                      help="altura maxima de las barras, como %% del alto de la pantalla (0-100)")
     ap.add_argument("--metadata-url", default=DEFAULT_METADATA_URL,
                      help="WebSocket de now-playing (vacio para desactivarlo del todo)")
+    ap.add_argument("--thumbnail-url", default=DEFAULT_THUMBNAIL_URL,
+                     help="WebSocket de caratula (vacio para desactivarlo del todo)")
     args = ap.parse_args()
 
     if not 0.0 <= args.max_bar_height <= 100.0:
@@ -106,6 +213,24 @@ def main() -> None:
     if metadata_monitor:
         metadata_monitor.start()
     show_metadata = True
+
+    thumbnail_monitor = ThumbnailMonitor(args.thumbnail_url) if args.thumbnail_url else None
+    if thumbnail_monitor:
+        thumbnail_monitor.start()
+    # C cicla 4 vistas: (caratula+disco, solo disco, solo caratula, nada).
+    # Cada estado dice si se dibuja el vinilo y/o la caratula.
+    THUMB_MODES = [(True, True), (True, False), (False, True), (False, False)]
+    thumb_mode = 0
+    # Cache: el hilo del socket solo entrega bytes crudos; decodificar a
+    # Surface y convert_alpha() necesita el contexto de video, asi que se
+    # hace aca, en el hilo principal, y solo cuando cambian los bytes.
+    thumb_raw = None
+    thumb_surface: pygame.Surface | None = None
+    art_panel: pygame.Surface | None = None       # caratula + marco ya compuestos
+    art_panel_for: int | None = None              # box para el que se compuso el panel cacheado
+    vinyl_base: pygame.Surface | None = None       # disco sin rotar, cacheado por diametro
+    vinyl_diam: int | None = None
+    vinyl_angle = 0.0                              # se acumula solo mientras hay play
 
     keymap = {pygame.K_1: "fb2k", pygame.K_2: "loopback", pygame.K_3: "mic", pygame.K_4: "tone"}
     running = True
@@ -134,12 +259,19 @@ def main() -> None:
                     engine.decay_ms = engine.decay_ms + 5
                 elif ev.key == pygame.K_m:
                     show_metadata = not show_metadata
+                elif ev.key == pygame.K_c:
+                    thumb_mode = (thumb_mode + 1) % len(THUMB_MODES)
 
         frame = engine.poll()          # <- lo unico que la GUI le pide al motor
         screen.fill(BG)
         w, h = screen.get_size()
 
-        media_info = metadata_monitor.read() if (metadata_monitor and show_metadata) else None
+        # El estado de reproduccion se lee SIEMPRE (aunque la barra este oculta
+        # con M): controla el giro del vinilo. Sin metadata, el disco gira.
+        now_playing = metadata_monitor.read() if metadata_monitor else None
+        spinning = now_playing.is_playing if now_playing is not None else True
+
+        media_info = now_playing if show_metadata else None
         header_h = 0
         if media_info is not None:
             draw_metadata_bar(screen, font_meta, w, media_info)
@@ -187,8 +319,53 @@ def main() -> None:
         else:
             hud = f"{engine.source_name}  |  esperando audio…"
 
+        # C cicla entre caratula+disco / solo disco / solo caratula / nada.
+        show_vinyl, show_art = THUMB_MODES[thumb_mode]
+        if thumbnail_monitor and (show_vinyl or show_art):
+            # Mantenemos thumb_surface al dia siempre (aunque la caratula no se
+            # muestre ahora): el decode solo ocurre cuando cambian los bytes,
+            # asi que al volver a "solo caratula" no aparece una imagen vieja.
+            raw = thumbnail_monitor.read()
+            if raw is not None and raw is not thumb_raw:
+                thumb_raw = raw
+                if raw is NO_ART:
+                    # El servicio confirmo que la pista actual no tiene caratula:
+                    # borramos lo que hubiera, no lo dejamos pegado de la anterior.
+                    thumb_surface = art_panel = art_panel_for = None
+                else:
+                    try:
+                        decoded = pygame.image.load(io.BytesIO(raw)).convert_alpha()
+                    except Exception:
+                        decoded = None  # frame corrupto/incompleto: no tocamos lo que ya habia
+                    if decoded is not None:
+                        thumb_surface = decoded
+                        art_panel = art_panel_for = None  # invalida el panel: hay imagen nueva
+
+            center = (w // 2, h // 2)
+            box = thumb_box(w, h)
+
+            # Disco de fondo: cacheado por diametro, rotado por frame.
+            if show_vinyl:
+                diam = int(box * VINYL_ART_RATIO)
+                if vinyl_base is None or diam != vinyl_diam:
+                    vinyl_base = make_vinyl(diam)
+                    vinyl_diam = diam
+                if spinning:
+                    vinyl_angle = (vinyl_angle + VINYL_SPIN_DPS * clock.get_time() / 1000.0) % 360.0
+                rotated = pygame.transform.rotozoom(vinyl_base, vinyl_angle, 1.0)
+                screen.blit(rotated, rotated.get_rect(center=center))
+
+            # Caratula + marco encima (estaticos), solo si hay imagen. El panel
+            # se rehace si la imagen cambio (invalidado arriba) o si cambio el
+            # tamano de la ventana (box distinto).
+            if show_art and thumb_surface is not None:
+                if art_panel is None or art_panel_for != box:
+                    art_panel = build_art_panel(thumb_surface, box)
+                    art_panel_for = box
+                screen.blit(art_panel, art_panel.get_rect(center=center))
+
         screen.blit(font.render(hud, True, TEXT), (16, header_h + 16))
-        screen.blit(font.render("1/2/3/4 fuente   Q/A attack   W/S decay   M metadata   ESC salir",
+        screen.blit(font.render("1/2/3/4 fuente   Q/A attack   W/S decay   M metadata   C vista   ESC salir",
                                 True, GRID), (16, header_h + 34))
         pygame.display.flip()
 
@@ -208,6 +385,8 @@ def main() -> None:
     engine.close()
     if metadata_monitor:
         metadata_monitor.stop()
+    if thumbnail_monitor:
+        thumbnail_monitor.stop()
     pygame.quit()
 
 
