@@ -66,13 +66,17 @@ class Engine:
         self.lo_hz, self.hi_hz = lo_hz, hi_hz
         self.distribution = distribution
 
-        if distribution == "octaves":
-            # El numero de bandas NO se configura aca: lo dicta el rango de notas.
-            self._plan = octave_bands(note_lo, note_hi, bands_per_octave,
-                                      tuning, transpose, bandwidth)
-        else:
-            self._plan = log_edges(n_bands, lo_hz, hi_hz)
-        self.n_bands = len(self._plan[2])
+        # Guardamos TODOS los parametros del plan (no solo el plan ya cocinado)
+        # para poder reconstruirlo en caliente desde la GUI. Antes vivian solo
+        # como argumentos de __init__ y se perdian tras construir self._plan.
+        self._n_bands_req = n_bands
+        self._note_lo = note_lo
+        self._note_hi = note_hi
+        self._bands_per_octave = bands_per_octave
+        self._tuning = tuning
+        self._transpose = transpose
+        self._bandwidth = bandwidth
+        self._build_plan()
 
         self._smoother = Smoother(fps, attack_ms, decay_ms)
         self._source: AudioSource | None = None
@@ -114,6 +118,75 @@ class Engine:
 
     def _retune(self) -> None:
         self._smoother.set_rates(self._fps, self._attack_ms, self._decay_ms)
+
+    # --- plan de bandas: reconstruible en caliente ---------------------------
+    #
+    # attack/decay/fps solo reajustan el Smoother (un alpha). El plan de bandas
+    # es mas pesado: cambia CUANTAS bandas hay y donde caen. Por eso vive aparte.
+
+    def _build_plan(self) -> None:
+        if self.distribution == "octaves":
+            # El numero de bandas NO se configura aca: lo dicta el rango de notas.
+            self._plan = octave_bands(self._note_lo, self._note_hi,
+                                      self._bands_per_octave, self._tuning,
+                                      self._transpose, self._bandwidth)
+        else:
+            self._plan = log_edges(self._n_bands_req, self.lo_hz, self.hi_hz)
+        self.n_bands = len(self._plan[2])
+
+    def reconfigure_analysis(self, *, distribution: str | None = None,
+                             n_bands: int | None = None,
+                             note_lo: str | None = None,
+                             note_hi: str | None = None,
+                             bands_per_octave: int | None = None,
+                             tuning: float | None = None,
+                             lo_hz: float | None = None,
+                             hi_hz: float | None = None) -> None:
+        """Reconstruye el plan de bandas en caliente, SIN tocar la fuente de
+        audio (no hay corte de sonido). Lo que no se pasa conserva su valor.
+
+        Resetea el suavizado a proposito: el numero y el centro de las bandas
+        pueden cambiar, y el estado viejo del Smoother ya no les corresponde."""
+        if distribution is not None:
+            self.distribution = distribution
+        if n_bands is not None:
+            self._n_bands_req = n_bands
+        if note_lo is not None:
+            self._note_lo = note_lo
+        if note_hi is not None:
+            self._note_hi = note_hi
+        if bands_per_octave is not None:
+            self._bands_per_octave = bands_per_octave
+        if tuning is not None:
+            self._tuning = tuning
+        if lo_hz is not None:
+            self.lo_hz = lo_hz
+        if hi_hz is not None:
+            self.hi_hz = hi_hz
+        self._build_plan()
+        self._smoother.reset()
+        self._last = None
+
+    # Solo lectura: la GUI los necesita para inicializar los controles del panel.
+    @property
+    def n_bands_req(self) -> int:
+        return self._n_bands_req
+
+    @property
+    def note_lo(self) -> str:
+        return self._note_lo
+
+    @property
+    def note_hi(self) -> str:
+        return self._note_hi
+
+    @property
+    def bands_per_octave(self) -> int:
+        return self._bands_per_octave
+
+    @property
+    def tuning(self) -> float:
+        return self._tuning
 
     # --- fuente intercambiable en caliente ----------------------------------
 

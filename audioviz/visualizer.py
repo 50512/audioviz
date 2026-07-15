@@ -11,7 +11,8 @@ Teclas:
     W / S       decay   -/+
     M           metadata (now playing) on/off
     C           vista: caratula+disco / disco / caratula / nada
-    ESC         salir
+    TAB         panel de configuracion (mouse) on/off
+    ESC         salir (o cerrar el panel si esta abierto)
 
 Requiere: pip install pygame-ce websockets
 """
@@ -28,6 +29,7 @@ import pygame.freetype
 
 from .engine import Engine
 from .metadata import MetadataMonitor
+from .settings_panel import SettingsPanel
 from .thumbnail import NO_ART, ThumbnailMonitor
 
 BG = (14, 14, 18)
@@ -228,6 +230,17 @@ def make_vinyl(diameter, ss=2) -> pygame.Surface:
     return pygame.transform.smoothscale(surf, (d, d))
 
 
+class ViewState:
+    """Estado de la vista que NO vive en el Engine (es pura presentacion).
+    Lo comparten los atajos de teclado, el panel de configuracion y el codigo
+    de dibujo: una unica fuente de verdad para que no se desincronicen."""
+
+    def __init__(self, show_metadata: bool, thumb_mode: int, max_bar_height: float):
+        self.show_metadata = show_metadata
+        self.thumb_mode = thumb_mode
+        self.max_bar_height = max_bar_height
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--source", default="fb2k", choices=["fb2k", "loopback", "mic", "tone"])
@@ -272,7 +285,6 @@ def main() -> None:
     metadata_monitor = MetadataMonitor(args.metadata_url) if args.metadata_url else None
     if metadata_monitor:
         metadata_monitor.start()
-    show_metadata = True
 
     thumbnail_monitor = ThumbnailMonitor(args.thumbnail_url) if args.thumbnail_url else None
     if thumbnail_monitor:
@@ -280,7 +292,11 @@ def main() -> None:
     # C cicla 4 vistas: (caratula+disco, solo disco, solo caratula, nada).
     # Cada estado dice si se dibuja el vinilo y/o la caratula.
     THUMB_MODES = [(True, True), (True, False), (False, True), (False, False)]
-    thumb_mode = 0
+    THUMB_MODE_LABELS = ["disco+car", "disco", "caratula", "nada"]
+
+    view = ViewState(show_metadata=True, thumb_mode=0,
+                     max_bar_height=args.max_bar_height)
+    panel = SettingsPanel(engine, view, THUMB_MODE_LABELS)
     # Cache: el hilo del socket solo entrega bytes crudos; decodificar a
     # Surface y convert_alpha() necesita el contexto de video, asi que se
     # hace aca, en el hilo principal, y solo cuando cambian los bytes.
@@ -300,7 +316,16 @@ def main() -> None:
         for ev in pygame.event.get():
             if ev.type == pygame.QUIT:
                 running = False
-            elif ev.type == pygame.KEYDOWN:
+                continue
+            # TAB abre/cierra el panel. El panel atiende sus propios clics (y el
+            # ESC cuando esta abierto); si consume el evento, no lo tratamos como
+            # atajo. Con el panel cerrado los atajos directos siguen intactos.
+            if ev.type == pygame.KEYDOWN and ev.key == pygame.K_TAB:
+                panel.toggle()
+                continue
+            if panel.handle(ev, screen.get_size()):
+                continue
+            if ev.type == pygame.KEYDOWN:
                 if ev.key == pygame.K_ESCAPE:
                     running = False
                 elif ev.key in keymap:
@@ -318,9 +343,9 @@ def main() -> None:
                 elif ev.key == pygame.K_s:
                     engine.decay_ms = engine.decay_ms + 5
                 elif ev.key == pygame.K_m:
-                    show_metadata = not show_metadata
+                    view.show_metadata = not view.show_metadata
                 elif ev.key == pygame.K_c:
-                    thumb_mode = (thumb_mode + 1) % len(THUMB_MODES)
+                    view.thumb_mode = (view.thumb_mode + 1) % len(THUMB_MODES)
 
         frame = engine.poll()          # <- lo unico que la GUI le pide al motor
         screen.fill(BG)
@@ -331,7 +356,7 @@ def main() -> None:
         now_playing = metadata_monitor.read() if metadata_monitor else None
         spinning = now_playing.is_playing if now_playing is not None else True
 
-        media_info = now_playing if show_metadata else None
+        media_info = now_playing if view.show_metadata else None
         header_h = 0
         if media_info is not None:
             draw_metadata_bar(screen, font_meta, w, media_info)
@@ -341,7 +366,7 @@ def main() -> None:
             heights = frame.normalized()           # (channels, n_bands) en 0..1
             ch = frame.channels
             pad, top, gap = 16, 56 + header_h, 12
-            max_plot_h = h * args.max_bar_height / 100.0
+            max_plot_h = h * view.max_bar_height / 100.0
 
             if ch == 2:
                 # Stereo: canales lado a lado.
@@ -380,7 +405,7 @@ def main() -> None:
             hud = f"{engine.source_name}  |  esperando audio…"
 
         # C cicla entre caratula+disco / solo disco / solo caratula / nada.
-        show_vinyl, show_art = THUMB_MODES[thumb_mode]
+        show_vinyl, show_art = THUMB_MODES[view.thumb_mode]
         if thumbnail_monitor and (show_vinyl or show_art):
             # Mantenemos thumb_surface al dia siempre (aunque la caratula no se
             # muestre ahora): el decode solo ocurre cuando cambian los bytes,
@@ -425,8 +450,9 @@ def main() -> None:
                 screen.blit(art_panel, art_panel.get_rect(center=center))
 
         screen.blit(font.render(hud, True, TEXT), (16, header_h + 16))
-        screen.blit(font.render("1/2/3/4 fuente   Q/A attack   W/S decay   M metadata   C vista   ESC salir",
+        screen.blit(font.render("1/2/3/4 fuente   Q/A attack   W/S decay   M metadata   C vista   TAB config   ESC salir",
                                 True, GRID), (16, header_h + 34))
+        panel.draw(screen)   # modal encima de todo, si esta abierto
         pygame.display.flip()
 
         dt = clock.tick(args.fps) / 1000.0
