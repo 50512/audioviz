@@ -43,6 +43,9 @@ def make_source(name: str, **kw) -> AudioSource:
     if name == "loopback":
         from .sources import LoopbackSource
         return LoopbackSource(**kw)
+    if name == "mic":
+        from .sources import MicSource
+        return MicSource(**kw)
     if name == "tone":
         from .sources import ToneSource
         return ToneSource(**kw)

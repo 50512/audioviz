@@ -3,9 +3,10 @@ WASAPI, FFT ni ventanas de Hann. Solo pide frames y dibuja.
 
     python -m audioviz.gui_pygame --source fb2k
     python -m audioviz.gui_pygame --source loopback --attack-ms 20 --decay-ms 30
+    python -m audioviz.gui_pygame --source mic
 
 Teclas:
-    1 / 2 / 3   fuente: fb2k / loopback / tone   (hot-swap, sin reiniciar)
+    1 / 2 / 3 / 4   fuente: fb2k / loopback / mic / tone   (hot-swap, sin reiniciar)
     Q / A       attack  -/+
     W / S       decay   -/+
     ESC         salir
@@ -42,7 +43,7 @@ def draw_channel(surf, band_h, rect, color, reverse=False):
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--source", default="fb2k", choices=["fb2k", "loopback", "tone"])
+    ap.add_argument("--source", default="fb2k", choices=["fb2k", "loopback", "mic", "tone"])
     ap.add_argument("--fps", type=float, default=60.0)
     ap.add_argument("--attack-ms", type=float, default=20.0)
     ap.add_argument("--decay-ms", type=float, default=250.0)
@@ -72,7 +73,7 @@ def main() -> None:
                     note_hi=args.note_hi, bands_per_octave=args.bpo,
                     tuning=args.tuning)
 
-    keymap = {pygame.K_1: "fb2k", pygame.K_2: "loopback", pygame.K_3: "tone"}
+    keymap = {pygame.K_1: "fb2k", pygame.K_2: "loopback", pygame.K_3: "mic", pygame.K_4: "tone"}
     running = True
     elapsed = 0.0
 
@@ -145,7 +146,7 @@ def main() -> None:
             hud = f"{engine.source_name}  |  esperando audio…"
 
         screen.blit(font.render(hud, True, TEXT), (16, 16))
-        screen.blit(font.render("1/2/3 fuente   Q/A attack   W/S decay   ESC salir",
+        screen.blit(font.render("1/2/3/4 fuente   Q/A attack   W/S decay   ESC salir",
                                 True, GRID), (16, 34))
         pygame.display.flip()
 

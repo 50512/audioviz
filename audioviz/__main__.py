@@ -2,6 +2,7 @@
 
     python -m audioviz --source fb2k
     python -m audioviz --source loopback
+    python -m audioviz --source mic       (microfono del dispositivo)
     python -m audioviz --source tone      (sin foobar, para desarrollar)
 
 El bucle de abajo NO sabe de que fuente viene el audio. Ese es el punto.
@@ -23,6 +24,9 @@ def build_source(name: str) -> AudioSource:
     if name == "loopback":
         from .sources import LoopbackSource
         return LoopbackSource()
+    if name == "mic":
+        from .sources import MicSource
+        return MicSource()
     if name == "tone":
         from .sources import ToneSource
         return ToneSource()
@@ -31,7 +35,7 @@ def build_source(name: str) -> AudioSource:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--source", default="fb2k", choices=["fb2k", "loopback", "tone"])
+    ap.add_argument("--source", default="fb2k", choices=["fb2k", "loopback", "mic", "tone"])
     ap.add_argument("--fps", type=float, default=30.0)
     ap.add_argument("--attack-ms", type=float, default=20.0,
                     help="subida: bajo = transientes veraces")
