@@ -24,6 +24,7 @@ import math
 
 import numpy as np
 import pygame
+import pygame.freetype
 
 from .engine import Engine
 from .metadata import MetadataMonitor
@@ -37,6 +38,11 @@ META_BG = (24, 24, 30)
 META_TEXT = (225, 225, 232)
 META_TEXT_PAUSED = (140, 140, 150)
 META_BAR_H = 28
+# La barra de now-playing puede traer cualquier idioma. Consolas (primaria)
+# mantiene el look monoespaciado del ASCII; las de reserva cubren japones
+# (kana + kanji + Han, asi que tambien chino) y coreano (hangul). pygame.font
+# no encadena glifos, asi que lo hacemos nosotros via pygame.freetype.
+META_FONT_CHAIN = ["consolas", "yugothicui", "malgungothic"]
 # --- caratula (label sobre el vinilo) ---
 THUMB_BACKDROP = (34, 36, 48, 235)   # relleno del marco: mas notorio que el fondo (14,14,18)
 THUMB_BORDER = (96, 108, 142)        # trazo del borde: acento frio, claro pero oscuro
@@ -71,8 +77,61 @@ def draw_channel(surf, band_h, rect, color, reverse=False):
         pygame.draw.rect(surf, color, (bx + 1, y + h - bh, int(bw) - 1, bh))
 
 
+class FallbackFont:
+    """Renderiza texto eligiendo, por caracter, la primera fuente de la cadena
+    que tenga ese glifo. Resuelve el caso de titulos con kanji/hangul/etc. que
+    con una sola fuente saldrian como cajas o '?'. Cachea el ultimo render
+    porque la metadata cambia rara vez."""
+
+    def __init__(self, names, size, bold=False) -> None:
+        self.fonts = []
+        for name in names:
+            f = pygame.freetype.SysFont(name, size, bold=bold)
+            f.origin = True   # render_to posiciona por baseline -> alinea fuentes distintas
+            self.fonts.append(f)
+        self._cache_key = None
+        self._cache_surf = None
+
+    def _font_for(self, ch: str):
+        for f in self.fonts:
+            m = f.get_metrics(ch)
+            if m and m[0] is not None:   # freetype devuelve None si falta el glifo
+                return f
+        return self.fonts[0]   # nadie lo tiene: caja de la primaria, mejor que nada
+
+    def render(self, text: str, color) -> pygame.Surface:
+        key = (text, color)
+        if key == self._cache_key:
+            return self._cache_surf
+
+        # Agrupa caracteres consecutivos que usan la misma fuente.
+        runs: list[tuple[str, object]] = []
+        for ch in text:
+            f = self._font_for(ch)
+            if runs and runs[-1][1] is f:
+                runs[-1] = (runs[-1][0] + ch, f)
+            else:
+                runs.append((ch, f))
+
+        ascent = max((f.get_sized_ascender() for _, f in runs), default=1)
+        descent = min((f.get_sized_descender() for _, f in runs), default=0)  # negativo
+        advances = [sum(m[4] for m in f.get_metrics(run) if m) for run, f in runs]
+        width = max(1, int(sum(advances)))
+        height = max(1, int(ascent - descent))
+
+        surf = pygame.Surface((width, height), pygame.SRCALPHA)
+        x = 0.0
+        for (run, f), adv in zip(runs, advances):
+            f.render_to(surf, (int(x), ascent), run, color)
+            x += adv
+
+        self._cache_key, self._cache_surf = key, surf
+        return surf
+
+
 def draw_metadata_bar(surf, font, w, info) -> None:
-    """Barra de "now playing" pegada al borde superior. info: MediaInfo."""
+    """Barra de "now playing" pegada al borde superior. info: MediaInfo.
+    font es un FallbackFont (soporta glifos no latinos: kanji, hangul...)."""
     pygame.draw.rect(surf, META_BG, (0, 0, w, META_BAR_H))
     if not info.title and not info.artist:
         return
@@ -80,7 +139,7 @@ def draw_metadata_bar(surf, font, w, info) -> None:
     if not info.is_playing:
         label += "  (pausado)"
     color = META_TEXT if info.is_playing else META_TEXT_PAUSED
-    text = font.render(label, True, color)
+    text = font.render(label, color)
     x = max(8, (w - text.get_width()) // 2)
     y = (META_BAR_H - text.get_height()) // 2
     surf.blit(text, (x, y))
@@ -194,11 +253,12 @@ def main() -> None:
         ap.error("--max-bar-height debe estar entre 0 y 100")
 
     pygame.init()
+    pygame.freetype.init()
     screen = pygame.display.set_mode((1000, 560), pygame.RESIZABLE)
     pygame.display.set_caption("audioviz")
     clock = pygame.time.Clock()
-    font = pygame.font.SysFont("consolas", 14)
-    font_meta = pygame.font.SysFont("consolas", 15, bold=True)
+    font = pygame.font.SysFont("consolas", 14)   # HUD: solo ASCII
+    font_meta = FallbackFont(META_FONT_CHAIN, 15, bold=True)   # now-playing: cualquier idioma
 
     engine = Engine(source=args.source, fps=args.fps, attack_ms=args.attack_ms,
                     decay_ms=args.decay_ms, n_bands=args.bands,
