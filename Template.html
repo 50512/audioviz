@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8"/>
+    <title>fb2k -&gt; Python bridge</title>
+    <style>
+        body { font: 12px/1.5 Consolas, monospace; margin: 0; padding: 8px;
+               color: var(--fb2k-fg, #ccc); background: transparent; }
+        #status { font-weight: bold; }
+        .ok   { color: #6a6; }
+        .bad  { color: #c55; }
+        #info { opacity: .7; }
+    </style>
+</head>
+<body>
+    <div id="status" class="bad">desconectado</div>
+    <div id="info">—</div>
+
+<script type="text/javascript">
+// ---------------------------------------------------------------------------
+// Puente foobar2000 -> Python.
+//
+// El componente entrega un SharedBuffer con las muestras del visualisation
+// stream (Float64, interleaved). Lo reempaquetamos a Float32 + cabecera y lo
+// mandamos por WebSocket.
+//
+// Float64 -> Float32 NO pierde informacion: en el C++ del componente,
+// SharedBuffer::Convert() recibe `const float *` y lo ensancha a double.
+// Los bits extra son relleno; volver a float32 es exacto.
+// ---------------------------------------------------------------------------
+
+const WS_URL = "ws://127.0.0.1:8765";
+
+let SharedBuffer = null;   // ArrayBuffer entregado por el componente
+let Samples      = null;   // Float64Array sobre ese buffer
+let Socket       = null;
+let Sent         = 0;
+
+const statusEl = document.getElementById("status");
+const infoEl   = document.getElementById("info");
+
+// --- WebSocket con reconexion automatica -----------------------------------
+
+function connect()
+{
+    try { Socket = new WebSocket(WS_URL); }
+    catch (e) { setTimeout(connect, 2000); return; }
+
+    Socket.binaryType = "arraybuffer";
+
+    Socket.onopen = () =>
+    {
+        statusEl.textContent = "conectado a " + WS_URL;
+        statusEl.className = "ok";
+    };
+
+    Socket.onclose = () =>
+    {
+        statusEl.textContent = "desconectado — reintentando…";
+        statusEl.className = "bad";
+        Socket = null;
+        setTimeout(connect, 2000);   // el receptor Python puede arrancar despues
+    };
+
+    Socket.onerror = () => { if (Socket) Socket.close(); };
+}
+
+// --- Recepcion del shared buffer -------------------------------------------
+
+window.onload = function()
+{
+    window.chrome.webview.addEventListener("sharedbufferreceived", (e) =>
+    {
+        OnSharedBufferReceived(e);
+    });
+
+    connect();
+};
+
+function OnSharedBufferReceived(e)
+{
+    // Hay que soltar el buffer anterior antes de tomar el nuevo.
+    if (SharedBuffer)
+    {
+        window.chrome.webview.releaseBuffer(SharedBuffer);
+        SharedBuffer = null;
+        Samples = null;
+    }
+
+    if (!e.additionalData)
+        return;
+
+    SharedBuffer = e.getBuffer();               // ArrayBuffer
+    Samples      = new Float64Array(SharedBuffer);
+}
+
+// --- Tick del visualizador: aca llegan las muestras frescas -----------------
+
+// OJO: el componente ejecuta   onTimer(...)   -- minuscula inicial.
+// (Rendering.cpp:71). El Template.html de ejemplo del autor lo declara como
+// OnTimer, que nunca se invoca. JavaScript es case-sensitive.
+function onTimer(sampleCount, sampleRate, channelCount, channelConfig)
+{
+    if (!Samples || !Socket || Socket.readyState !== WebSocket.OPEN)
+        return;
+
+    // El buffer real son sampleCount * channelCount doubles (interleaved).
+    // OJO: el Template.html de ejemplo del componente itera solo hasta
+    // sampleCount, con lo que lee apenas 1/channelCount del buffer. Aca no.
+    const total = Math.min(sampleCount * channelCount, Samples.length);
+
+    if (total <= 0)
+        return;
+
+    // Cabecera de 8 bytes: mantiene el payload float32 alineado a 4.
+    const packet = new ArrayBuffer(8 + total * 4);
+    const view   = new DataView(packet);
+
+    view.setUint32(0, sampleRate,   true);   // little-endian
+    view.setUint16(4, channelCount, true);
+    view.setUint16(6, 0,            true);   // reservado
+
+    const out = new Float32Array(packet, 8, total);
+    for (let i = 0; i < total; i++)
+        out[i] = Samples[i];
+
+    Socket.send(packet);
+
+    if ((++Sent % 30) === 0)
+    {
+        const frames = total / channelCount;
+        infoEl.textContent =
+            sampleRate + " Hz · " + channelCount + " ch · " +
+            frames + " frames · " + Sent + " chunks";
+    }
+}
+
+// --- Callbacks que el componente espera que existan -------------------------
+// (si faltan, escribe errores en la consola de foobar2000)
+
+function onPlaybackStarting(command, paused) {}
+function onPlaybackNewTrack()                {}
+function onPlaybackStop(reason)              {}
+function onPlaybackSeek(time)                {}
+function onPlaybackPause(paused)             {}
+function onPlaybackEdited()                  {}
+function onPlaybackDynamicInfo()             {}
+function onPlaybackDynamicTrackInfo()        {}
+function onVolumeChange(volume)              {}
+function onPlaybackTime(time)                {}
+function onDefaultFormatChanged()            {}
+</script>
+</body>
+</html>
