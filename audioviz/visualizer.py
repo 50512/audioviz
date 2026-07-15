@@ -9,9 +9,10 @@ Teclas:
     1 / 2 / 3 / 4   fuente: fb2k / loopback / mic / tone   (hot-swap, sin reiniciar)
     Q / A       attack  -/+
     W / S       decay   -/+
+    M           metadata (now playing) on/off
     ESC         salir
 
-Requiere: pip install pygame-ce
+Requiere: pip install pygame-ce websockets
 """
 
 from __future__ import annotations
@@ -22,11 +23,18 @@ import numpy as np
 import pygame
 
 from .engine import Engine
+from .metadata import MetadataMonitor
 
 BG = (14, 14, 18)
 GRID = (34, 34, 42)
 CH_COLORS = [(90, 200, 250), (250, 130, 110), (150, 230, 140), (240, 200, 90)]
 TEXT = (150, 150, 165)
+META_BG = (24, 24, 30)
+META_TEXT = (225, 225, 232)
+META_TEXT_PAUSED = (140, 140, 150)
+META_BAR_H = 28
+
+DEFAULT_METADATA_URL = "ws://100.97.196.102:25012/ws/media-info"
 
 
 def draw_channel(surf, band_h, rect, color, reverse=False):
@@ -39,6 +47,21 @@ def draw_channel(surf, band_h, rect, color, reverse=False):
         bh = max(1, int(v * h))
         bx = int(x + i * bw)
         pygame.draw.rect(surf, color, (bx + 1, y + h - bh, int(bw) - 1, bh))
+
+
+def draw_metadata_bar(surf, font, w, info) -> None:
+    """Barra de "now playing" pegada al borde superior. info: MediaInfo."""
+    pygame.draw.rect(surf, META_BG, (0, 0, w, META_BAR_H))
+    if not info.title and not info.artist:
+        return
+    label = " - ".join(p for p in (info.title, info.artist) if p)
+    if not info.is_playing:
+        label += "  (pausado)"
+    color = META_TEXT if info.is_playing else META_TEXT_PAUSED
+    text = font.render(label, True, color)
+    x = max(8, (w - text.get_width()) // 2)
+    y = (META_BAR_H - text.get_height()) // 2
+    surf.blit(text, (x, y))
 
 
 def main() -> None:
@@ -56,6 +79,8 @@ def main() -> None:
     ap.add_argument("--seconds", type=float, default=0.0, help="0 = infinito")
     ap.add_argument("--max-bar-height", type=float, default=100.0,
                      help="altura maxima de las barras, como %% del alto de la pantalla (0-100)")
+    ap.add_argument("--metadata-url", default=DEFAULT_METADATA_URL,
+                     help="WebSocket de now-playing (vacio para desactivarlo del todo)")
     args = ap.parse_args()
 
     if not 0.0 <= args.max_bar_height <= 100.0:
@@ -66,12 +91,21 @@ def main() -> None:
     pygame.display.set_caption("audioviz")
     clock = pygame.time.Clock()
     font = pygame.font.SysFont("consolas", 14)
+    font_meta = pygame.font.SysFont("consolas", 15, bold=True)
 
     engine = Engine(source=args.source, fps=args.fps, attack_ms=args.attack_ms,
                     decay_ms=args.decay_ms, n_bands=args.bands,
                     distribution=args.dist, note_lo=args.note_lo,
                     note_hi=args.note_hi, bands_per_octave=args.bpo,
                     tuning=args.tuning)
+
+    # La metadata viaja por su propio WebSocket, ajeno al motor de audio: si el
+    # servicio no esta arriba el hilo simplemente reintenta en el fondo y
+    # read() devuelve None, sin afectar en nada al resto del visualizador.
+    metadata_monitor = MetadataMonitor(args.metadata_url) if args.metadata_url else None
+    if metadata_monitor:
+        metadata_monitor.start()
+    show_metadata = True
 
     keymap = {pygame.K_1: "fb2k", pygame.K_2: "loopback", pygame.K_3: "mic", pygame.K_4: "tone"}
     running = True
@@ -98,15 +132,23 @@ def main() -> None:
                     engine.decay_ms = max(0.0, engine.decay_ms - 5)
                 elif ev.key == pygame.K_s:
                     engine.decay_ms = engine.decay_ms + 5
+                elif ev.key == pygame.K_m:
+                    show_metadata = not show_metadata
 
         frame = engine.poll()          # <- lo unico que la GUI le pide al motor
         screen.fill(BG)
         w, h = screen.get_size()
 
+        media_info = metadata_monitor.read() if (metadata_monitor and show_metadata) else None
+        header_h = 0
+        if media_info is not None:
+            draw_metadata_bar(screen, font_meta, w, media_info)
+            header_h = META_BAR_H
+
         if frame is not None:
             heights = frame.normalized()           # (channels, n_bands) en 0..1
             ch = frame.channels
-            pad, top, gap = 16, 56, 12
+            pad, top, gap = 16, 56 + header_h, 12
             max_plot_h = h * args.max_bar_height / 100.0
 
             if ch == 2:
@@ -145,9 +187,9 @@ def main() -> None:
         else:
             hud = f"{engine.source_name}  |  esperando audio…"
 
-        screen.blit(font.render(hud, True, TEXT), (16, 16))
-        screen.blit(font.render("1/2/3/4 fuente   Q/A attack   W/S decay   ESC salir",
-                                True, GRID), (16, 34))
+        screen.blit(font.render(hud, True, TEXT), (16, header_h + 16))
+        screen.blit(font.render("1/2/3/4 fuente   Q/A attack   W/S decay   M metadata   ESC salir",
+                                True, GRID), (16, header_h + 34))
         pygame.display.flip()
 
         dt = clock.tick(args.fps) / 1000.0
@@ -164,6 +206,8 @@ def main() -> None:
             running = False
 
     engine.close()
+    if metadata_monitor:
+        metadata_monitor.stop()
     pygame.quit()
 
 
