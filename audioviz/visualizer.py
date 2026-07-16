@@ -31,6 +31,7 @@ import numpy as np
 import pygame
 import pygame.freetype
 
+from . import config
 from .engine import Engine
 from .metadata import MetadataMonitor
 from .settings_panel import SettingsPanel
@@ -315,52 +316,68 @@ class ViewState:
 
 
 def main() -> None:
+    # Los flags de configuracion usan default=SUPPRESS: si no se pasan, NO
+    # aparecen en args. Asi se distingue "el usuario lo puso" de "quedo en el
+    # default", que es lo que permite la precedencia flag > archivo > default.
+    # El `dest` de cada uno coincide con la clave del esquema en config.py.
+    S = argparse.SUPPRESS
     ap = argparse.ArgumentParser()
-    ap.add_argument("--source", default="fb2k", choices=["fb2k", "loopback", "mic", "tone"])
-    ap.add_argument("--fps", type=float, default=60.0)
-    ap.add_argument("--attack-ms", type=float, default=20.0)
-    ap.add_argument("--decay-ms", type=float, default=250.0)
-    ap.add_argument("--bands", type=int, default=128, help="solo para --dist log")
-    ap.add_argument("--dist", default="log", choices=["log", "octaves"])
-    ap.add_argument("--note-lo", default="C0")
-    ap.add_argument("--note-hi", default="F#10")
-    ap.add_argument("--bpo", type=int, default=12, help="bandas por octava")
-    ap.add_argument("--tuning", type=float, default=440.0)
-    ap.add_argument("--seconds", type=float, default=0.0, help="0 = infinito")
-    ap.add_argument("--max-bar-height", type=float, default=100.0,
+    ap.add_argument("--source", default=S, choices=["fb2k", "loopback", "mic", "tone"])
+    ap.add_argument("--attack-ms", dest="attack_ms", type=float, default=S)
+    ap.add_argument("--decay-ms", dest="decay_ms", type=float, default=S)
+    ap.add_argument("--bands", dest="n_bands", type=int, default=S, help="solo para --dist log")
+    ap.add_argument("--dist", dest="distribution", default=S, choices=["log", "octaves"])
+    ap.add_argument("--note-lo", dest="note_lo", default=S)
+    ap.add_argument("--note-hi", dest="note_hi", default=S)
+    ap.add_argument("--bpo", dest="bands_per_octave", type=int, default=S, help="bandas por octava")
+    ap.add_argument("--tuning", type=float, default=S)
+    ap.add_argument("--max-bar-height", dest="max_bar_height", type=float, default=S,
                      help="altura maxima de las barras, como %% del alto de la pantalla (0-100)")
-    ap.add_argument("--circle-radius-mult", type=float, default=DEFAULT_RADIUS_MULT,
+    ap.add_argument("--circle-radius-mult", dest="circle_radius_mult", type=float, default=S,
                      help="radio interior del circulo de barras, como multiplo del radio "
                           "del vinilo central (1.0-3.0)")
-    ap.add_argument("--circle-max-height", type=float, default=100.0,
+    ap.add_argument("--circle-max-height", dest="circle_max_height", type=float, default=S,
                      help="largo maximo de las barras del circulo, como %% del espacio "
                           "disponible hasta el borde (0-100)")
-    ap.add_argument("--circle-gradient", default=DEFAULT_GRADIENT, choices=GRADIENT_MODES,
+    ap.add_argument("--circle-gradient", dest="circle_gradient_mode", default=S, choices=GRADIENT_MODES,
                      help="modo de degradado del circulo: rgb (medio gris), warm "
                           "(via verde/amarillo), cool (via magenta), oklch (perceptual)")
-    ap.add_argument("--vinyl-scale", type=float, default=1.0,
+    ap.add_argument("--vinyl-scale", dest="vinyl_scale", type=float, default=S,
                      help="multiplicador del tamano del vinilo (y en cascada de la "
                           "caratula y el radio del circulo); 0.3-1.0")
-    ap.add_argument("--bars-gradient", default=DEFAULT_BARS_GRADIENT, choices=BARS_GRADIENT_MODES,
+    ap.add_argument("--bars-gradient", dest="bars_gradient_mode", default=S, choices=BARS_GRADIENT_MODES,
                      help="color de las barras verticales: solid (por canal) o un "
                           "degradado (rgb/warm/cool/oklch)")
-    ap.add_argument("--bars-scope", default=DEFAULT_BARS_SCOPE, choices=BARS_SCOPES,
+    ap.add_argument("--bars-scope", dest="bars_gradient_scope", default=S, choices=BARS_SCOPES,
                      help="alcance del degradado de barras: channel (grave->agudo por "
                           "canal) o span (grave L -> grave R, todo el ancho)")
+    # No-config: argumentos de arranque, no se persisten.
+    ap.add_argument("--fps", type=float, default=60.0)
+    ap.add_argument("--seconds", type=float, default=0.0, help="0 = infinito")
+    ap.add_argument("--no-config", action="store_true",
+                     help="no leer ni escribir el archivo de configuracion (arranque limpio)")
     ap.add_argument("--metadata-url", default=DEFAULT_METADATA_URL,
                      help="WebSocket de now-playing (vacio para desactivarlo del todo)")
     ap.add_argument("--thumbnail-url", default=DEFAULT_THUMBNAIL_URL,
                      help="WebSocket de caratula (vacio para desactivarlo del todo)")
     args = ap.parse_args()
 
-    if not 0.0 <= args.max_bar_height <= 100.0:
+    # Solo se validan los flags realmente pasados (con SUPPRESS, los ausentes no
+    # existen en args). Los valores del archivo se sanean aparte, sin abortar.
+    if hasattr(args, "max_bar_height") and not 0.0 <= args.max_bar_height <= 100.0:
         ap.error("--max-bar-height debe estar entre 0 y 100")
-    if not 1.0 <= args.circle_radius_mult <= 3.0:
+    if hasattr(args, "circle_radius_mult") and not 1.0 <= args.circle_radius_mult <= 3.0:
         ap.error("--circle-radius-mult debe estar entre 1.0 y 3.0")
-    if not 0.0 <= args.circle_max_height <= 100.0:
+    if hasattr(args, "circle_max_height") and not 0.0 <= args.circle_max_height <= 100.0:
         ap.error("--circle-max-height debe estar entre 0 y 100")
-    if not 0.3 <= args.vinyl_scale <= 1.0:
+    if hasattr(args, "vinyl_scale") and not 0.3 <= args.vinyl_scale <= 1.0:
         ap.error("--vinyl-scale debe estar entre 0.3 y 1.0")
+
+    # Merge de precedencia: DEFAULTS < archivo guardado < flags explicitos.
+    file_cfg = {} if args.no_config else config.load()
+    cli = {k: getattr(args, k) for k in config.DEFAULTS if hasattr(args, k)}
+    eff = {**config.DEFAULTS, **file_cfg, **cli}
+    config.sanitize(eff)
 
     pygame.init()
     pygame.freetype.init()
@@ -370,11 +387,11 @@ def main() -> None:
     font = pygame.font.SysFont("consolas", 14)   # HUD: solo ASCII
     font_meta = FallbackFont(META_FONT_CHAIN, 15, bold=True)   # now-playing: cualquier idioma
 
-    engine = Engine(source=args.source, fps=args.fps, attack_ms=args.attack_ms,
-                    decay_ms=args.decay_ms, n_bands=args.bands,
-                    distribution=args.dist, note_lo=args.note_lo,
-                    note_hi=args.note_hi, bands_per_octave=args.bpo,
-                    tuning=args.tuning)
+    engine = Engine(source=eff["source"], fps=args.fps, attack_ms=eff["attack_ms"],
+                    decay_ms=eff["decay_ms"], n_bands=eff["n_bands"],
+                    distribution=eff["distribution"], note_lo=eff["note_lo"],
+                    note_hi=eff["note_hi"], bands_per_octave=eff["bands_per_octave"],
+                    tuning=eff["tuning"])
 
     # La metadata viaja por su propio WebSocket, ajeno al motor de audio: si el
     # servicio no esta arriba el hilo simplemente reintenta en el fondo y
@@ -394,16 +411,26 @@ def main() -> None:
     # Visualizaciones del espectro. Cada una se dibuja si esta activa; el estado
     # de activacion vive en la vista y lo alterna el panel de configuracion.
     visualizations = build_visualizations()
+    # Arranca con el default de cada visualizacion y lo pisa con lo guardado
+    # (solo ids conocidos: ignoramos entradas viejas de visualizaciones que ya no
+    # existen). Los flags no tocan enabled_viz; solo el panel/archivo.
     enabled_viz = {v.id: v.default_on for v in visualizations}
+    for vid, on in (eff.get("enabled_viz") or {}).items():
+        if vid in enabled_viz:
+            enabled_viz[vid] = bool(on)
 
-    view = ViewState(show_metadata=True, thumb_mode=0,
-                     max_bar_height=args.max_bar_height, enabled_viz=enabled_viz,
-                     circle_radius_mult=args.circle_radius_mult,
-                     circle_max_height=args.circle_max_height,
-                     circle_gradient_mode=args.circle_gradient,
-                     vinyl_scale=args.vinyl_scale,
-                     bars_gradient_mode=args.bars_gradient,
-                     bars_gradient_scope=args.bars_scope, fullscreen_display=0)
+    # thumb_mode acotado por si el archivo trae un indice fuera de rango.
+    thumb_mode = max(0, min(int(eff["thumb_mode"]), len(THUMB_MODES) - 1))
+
+    view = ViewState(show_metadata=bool(eff["show_metadata"]), thumb_mode=thumb_mode,
+                     max_bar_height=eff["max_bar_height"], enabled_viz=enabled_viz,
+                     circle_radius_mult=eff["circle_radius_mult"],
+                     circle_max_height=eff["circle_max_height"],
+                     circle_gradient_mode=eff["circle_gradient_mode"],
+                     vinyl_scale=eff["vinyl_scale"],
+                     bars_gradient_mode=eff["bars_gradient_mode"],
+                     bars_gradient_scope=eff["bars_gradient_scope"],
+                     fullscreen_display=int(eff["fullscreen_display"]))
     panel = SettingsPanel(engine, view, THUMB_MODE_LABELS, visualizations)
     # Cache: el hilo del socket solo entrega bytes crudos; decodificar a
     # Surface y convert_alpha() necesita el contexto de video, asi que se
@@ -441,6 +468,10 @@ def main() -> None:
         return surf, idx
 
     while running:
+        # El guardado se dispara al CERRAR el panel: recordamos si estaba abierto
+        # antes de procesar los eventos y comparamos despues. Cubre todas las vias
+        # de cierre (TAB, ESC, clic fuera) sin tocar la logica interna del panel.
+        panel_was_open = panel.open
         for ev in pygame.event.get():
             if ev.type == pygame.QUIT:
                 running = False
@@ -494,6 +525,10 @@ def main() -> None:
                     view.show_metadata = not view.show_metadata
                 elif ev.key == pygame.K_c:
                     view.thumb_mode = (view.thumb_mode + 1) % len(THUMB_MODES)
+
+        # El panel se acaba de cerrar: persistimos el estado (salvo --no-config).
+        if panel_was_open and not panel.open and not args.no_config:
+            config.save(config.snapshot(view, engine))
 
         # Si el panel cambio el monitor de destino mientras estamos en pantalla
         # completa, movemos la ventana al nuevo monitor en caliente. (El panel no
