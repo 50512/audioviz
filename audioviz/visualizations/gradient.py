@@ -95,15 +95,31 @@ def _lerp_oklch(a_lab, b_lab, t):
     return _oklab_to_rgb((L, C * math.cos(H), C * math.sin(H)))
 
 
-def build_gradient(n, c0, c1, mode):
-    """Lista de n colores solidos de c0 a c1 segun el modo de interpolacion."""
-    if n <= 1:
-        return [tuple(c0)]
+def interp(c0, c1, t, mode):
+    """Un unico color interpolado entre c0 y c1 en el parametro t (0..1)."""
     if mode == "oklch":
-        a_lab, b_lab = _rgb_to_oklab(c0), _rgb_to_oklab(c1)   # extremos una sola vez
-        return [_lerp_oklch(a_lab, b_lab, i / (n - 1)) for i in range(n)]
+        return _lerp_oklch(_rgb_to_oklab(c0), _rgb_to_oklab(c1), t)
     if mode == "warm":
-        return [_lerp_hsv(c0, c1, i / (n - 1), ascending=False) for i in range(n)]
+        return _lerp_hsv(c0, c1, t, ascending=False)
     if mode == "cool":
-        return [_lerp_hsv(c0, c1, i / (n - 1), ascending=True) for i in range(n)]
-    return [_lerp_rgb(c0, c1, i / (n - 1)) for i in range(n)]
+        return _lerp_hsv(c0, c1, t, ascending=True)
+    return _lerp_rgb(c0, c1, t)
+
+
+def build_gradient(n, stops, mode):
+    """Lista de n colores solidos que recorren `stops` (1..k colores) segun el
+    modo de interpolacion. 1 stop = color solido; 2 = degradado clasico; 3+ =
+    multiescala con esos colores como puntos equiespaciados (el del medio es el
+    punto medio del degradado)."""
+    stops = [tuple(s) for s in stops]
+    if n <= 1:
+        return [stops[0]]
+    if len(stops) == 1:
+        return [stops[0]] * n
+    k = len(stops)
+    out = []
+    for i in range(n):
+        p = (i / (n - 1)) * (k - 1)       # posicion global en [0, k-1]
+        seg = min(int(p), k - 2)          # segmento entre stops[seg] y stops[seg+1]
+        out.append(interp(stops[seg], stops[seg + 1], p - seg, mode))
+    return out

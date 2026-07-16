@@ -17,7 +17,8 @@ from __future__ import annotations
 import pygame
 
 from ..engine import VizFrame
-from .base import RenderContext, SliderSetting, StepperSetting, Visualization
+from .base import (RenderContext, SliderSetting, StepperSetting, ToggleSetting,
+                   Visualization)
 from .gradient import GRADIENT_LABELS, GRADIENT_MODES, build_gradient
 
 # Modo de color: "solid" (colores por canal) + los degradados de gradient.py.
@@ -67,20 +68,21 @@ class BarsVisualization(Visualization):
                            BARS_GRADIENT_MODES, BARS_GRADIENT_LABELS),
             StepperSetting("aplicar", "bars_gradient_scope",
                            BARS_SCOPES, BARS_SCOPE_LABELS),
+            ToggleSetting("caratula", "bars_use_cover"),
         ]
 
-    def _bar_colors(self, n, c0, c1, mode, scope):
-        """(left, right, row) de colores por banda para el modo/alcance dados.
+    def _bar_colors(self, n, stops, mode, scope):
+        """(left, right, row) de colores por banda para los stops/modo/alcance.
         - "por canal": las tres son el mismo degradado grave->agudo.
         - "extremos": un degradado de 2n barre L (mitad baja) y R (mitad alta);
           right queda invertido porque el canal derecho se dibuja invertido, asi
-          el grave de R (rojo) cae en el borde derecho."""
-        key = (n, tuple(c0), tuple(c1), mode, scope)
+          el ultimo color cae en el borde derecho."""
+        key = (n, tuple(map(tuple, stops)), mode, scope)
         if key == self._cache_key:
             return self._cache
-        row = build_gradient(n, c0, c1, mode)
+        row = build_gradient(n, stops, mode)
         if scope == "span":
-            full = build_gradient(2 * n, c0, c1, mode)
+            full = build_gradient(2 * n, stops, mode)
             left, right = full[:n], list(reversed(full[n:]))
         else:
             left = right = row
@@ -96,14 +98,29 @@ class BarsVisualization(Visualization):
         pad, top, gap = 16, 56 + ctx.header_h, 12
         max_plot_h = h * ctx.max_height_frac
 
-        # Color por canal: solido (RGB) o paleta por banda (secuencia), segun modo.
-        solid = ctx.bars_gradient_mode == "solid"
+        # Fuente de color: caratula (la paleta manda: 1 color = solido, 2/3 =
+        # degradado interpolado en oklch) o los colores por defecto con el modo
+        # elegido. El alcance (por canal / extremos) aplica en ambos casos.
+        use_cover = bool(ctx.bars_use_cover and ctx.cover_palette)
+        if use_cover:
+            stops, mode = ctx.cover_palette, "oklch"
+            solid = len(stops) == 1
+        else:
+            stops = [ctx.colors[0], ctx.colors[1]]
+            mode = ctx.bars_gradient_mode
+            solid = mode == "solid"
+
+        row_col = None
         if solid:
-            left_col, right_col = ctx.colors[0], ctx.colors[1]
+            # Solido: con caratula de 1 color, ese color en ambos canales; por
+            # defecto, un color plano por canal (izq celeste, der rojo).
+            if use_cover:
+                left_col = right_col = stops[0]
+            else:
+                left_col, right_col = ctx.colors[0], ctx.colors[1]
         else:
             left_col, right_col, row_col = self._bar_colors(
-                n, ctx.colors[0], ctx.colors[1],
-                ctx.bars_gradient_mode, ctx.bars_gradient_scope)
+                n, stops, mode, ctx.bars_gradient_scope)
 
         if ch == 2:
             # Stereo: canales lado a lado.
@@ -132,6 +149,9 @@ class BarsVisualization(Visualization):
             for c in range(ch):
                 y = top + c * (plot_h + gap)
                 bottom = y + plot_h
-                col = ctx.colors[c % len(ctx.colors)] if solid else row_col
+                if solid:
+                    col = stops[0] if use_cover else ctx.colors[c % len(ctx.colors)]
+                else:
+                    col = row_col
                 pygame.draw.line(surf, ctx.grid_color, (pad, bottom), (w - pad, bottom))
                 draw_channel(surf, heights[c], (pad, bottom - bar_h, w - 2 * pad, bar_h), col)

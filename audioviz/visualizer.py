@@ -41,6 +41,7 @@ from .visualizations.bars import (BARS_GRADIENT_MODES, BARS_SCOPES,
                                   DEFAULT_BARS_GRADIENT, DEFAULT_BARS_SCOPE)
 from .visualizations.circle_bars import DEFAULT_RADIUS_MULT
 from .visualizations.gradient import DEFAULT_GRADIENT, GRADIENT_MODES
+from .visualizations.palette import extract_palette
 
 BG = (14, 14, 18)
 GRID = (34, 34, 42)
@@ -287,7 +288,8 @@ class ViewState:
                  enabled_viz: dict[str, bool], circle_radius_mult: float = 1.1,
                  circle_max_height: float = 100.0, circle_gradient_mode: str = "rgb",
                  vinyl_scale: float = 1.0, bars_gradient_mode: str = "solid",
-                 bars_gradient_scope: str = "channel", fullscreen_display: int = 0):
+                 bars_gradient_scope: str = "channel", bars_use_cover: bool = False,
+                 circle_use_cover: bool = False, fullscreen_display: int = 0):
         self.show_metadata = show_metadata
         self.thumb_mode = thumb_mode
         # Tope de altura de las barras verticales, como % del alto de la pantalla.
@@ -311,6 +313,10 @@ class ViewState:
         # alcance del degradado (channel = por canal, span = de extremo a extremo).
         self.bars_gradient_mode = bars_gradient_mode
         self.bars_gradient_scope = bars_gradient_scope
+        # Usar la paleta de la caratula en vez de los colores por defecto, por
+        # visualizacion. La cantidad de colores extraidos define el mapeo.
+        self.bars_use_cover = bars_use_cover
+        self.circle_use_cover = circle_use_cover
         # Indice del monitor al que se ancla la pantalla completa (F11).
         self.fullscreen_display = fullscreen_display
 
@@ -430,6 +436,8 @@ def main() -> None:
                      vinyl_scale=eff["vinyl_scale"],
                      bars_gradient_mode=eff["bars_gradient_mode"],
                      bars_gradient_scope=eff["bars_gradient_scope"],
+                     bars_use_cover=bool(eff["bars_use_cover"]),
+                     circle_use_cover=bool(eff["circle_use_cover"]),
                      fullscreen_display=int(eff["fullscreen_display"]))
     panel = SettingsPanel(engine, view, THUMB_MODE_LABELS, visualizations)
     # Cache: el hilo del socket solo entrega bytes crudos; decodificar a
@@ -442,6 +450,7 @@ def main() -> None:
     vinyl_base: pygame.Surface | None = None       # disco sin rotar, cacheado por diametro
     vinyl_diam: int | None = None
     vinyl_angle = 0.0                              # se acumula solo mientras hay play
+    cover_palette: list | None = None             # 1..3 colores de la caratula actual
 
     keymap = {pygame.K_1: "fb2k", pygame.K_2: "loopback", pygame.K_3: "mic", pygame.K_4: "tone"}
     running = True
@@ -564,7 +573,10 @@ def main() -> None:
                                 center=(w // 2, h // 2), disc_radius=disc_radius,
                                 circle_radius_mult=view.circle_radius_mult,
                                 circle_max_height_frac=view.circle_max_height / 100.0,
-                                circle_gradient_mode=view.circle_gradient_mode)
+                                circle_gradient_mode=view.circle_gradient_mode,
+                                cover_palette=cover_palette,
+                                bars_use_cover=view.bars_use_cover,
+                                circle_use_cover=view.circle_use_cover)
             for viz in visualizations:
                 if view.enabled_viz.get(viz.id):
                     viz.draw(screen, frame, ctx)
@@ -577,12 +589,11 @@ def main() -> None:
         else:
             hud = f"{engine.source_name}  |  esperando audio…"
 
-        # C cicla entre caratula+disco / solo disco / solo caratula / nada.
-        show_vinyl, show_art = THUMB_MODES[view.thumb_mode]
-        if thumbnail_monitor and (show_vinyl or show_art):
-            # Mantenemos thumb_surface al dia siempre (aunque la caratula no se
-            # muestre ahora): el decode solo ocurre cuando cambian los bytes,
-            # asi que al volver a "solo caratula" no aparece una imagen vieja.
+        # Decodificamos la caratula SIEMPRE que cambien los bytes (aunque el arte
+        # no se muestre): asi thumb_surface no queda viejo y la paleta de color
+        # esta lista para las visualizaciones que la usen, este el disco visible
+        # o no. El decode/extraccion solo ocurre en el cambio de bytes.
+        if thumbnail_monitor:
             raw = thumbnail_monitor.read()
             if raw is not None and raw is not thumb_raw:
                 thumb_raw = raw
@@ -590,6 +601,7 @@ def main() -> None:
                     # El servicio confirmo que la pista actual no tiene caratula:
                     # borramos lo que hubiera, no lo dejamos pegado de la anterior.
                     thumb_surface = art_panel = art_panel_for = None
+                    cover_palette = None
                 else:
                     try:
                         decoded = pygame.image.load(io.BytesIO(raw)).convert_alpha()
@@ -598,7 +610,11 @@ def main() -> None:
                     if decoded is not None:
                         thumb_surface = decoded
                         art_panel = art_panel_for = None  # invalida el panel: hay imagen nueva
+                        cover_palette = extract_palette(decoded)  # 1..3 colores, o None
 
+        # C cicla entre caratula+disco / solo disco / solo caratula / nada.
+        show_vinyl, show_art = THUMB_MODES[view.thumb_mode]
+        if show_vinyl or show_art:
             center = (w // 2, h // 2)
             box = thumb_box(w, h, view.vinyl_scale)
 

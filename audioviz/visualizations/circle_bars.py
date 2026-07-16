@@ -18,7 +18,8 @@ import math
 import pygame
 
 from ..engine import VizFrame
-from .base import RenderContext, SliderSetting, StepperSetting, Visualization
+from .base import (RenderContext, SliderSetting, StepperSetting, ToggleSetting,
+                   Visualization)
 from .gradient import GRADIENT_LABELS, GRADIENT_MODES, build_gradient
 
 DEFAULT_RADIUS_MULT = 1.1   # radio interior por defecto = radio del vinilo * esto
@@ -47,13 +48,14 @@ class CircleBarsVisualization(Visualization):
                           fmt=lambda v: f"{int(v)} %"),
             StepperSetting("degradado", "circle_gradient_mode",
                            GRADIENT_MODES, GRADIENT_LABELS),
+            ToggleSetting("caratula", "circle_use_cover"),
         ]
 
-    def _gradient(self, n, c0, c1, mode):
-        key = (n, tuple(c0), tuple(c1), mode)
+    def _gradient(self, n, stops, mode):
+        key = (n, tuple(stops), mode)
         if key == self._grad_key:
             return self._grad
-        self._grad = build_gradient(n, c0, c1, mode)
+        self._grad = build_gradient(n, stops, mode)
         self._grad_key = key
         return self._grad
 
@@ -69,7 +71,15 @@ class CircleBarsVisualization(Visualization):
         outer_limit = min(ctx.width, ctx.height) * 0.5 - OUTER_PAD
         max_len = max(MIN_LEN, outer_limit - inner) * ctx.circle_max_height_frac
 
-        grad = self._gradient(n, ctx.colors[0], ctx.colors[1], ctx.circle_gradient_mode)
+        # Con "caratula" activa, la paleta extraida (1..3 colores) manda: 1 =
+        # solido, 2 = degradado, 3 = degradado con punto medio. Se interpola en
+        # oklch (perceptual, natural entre colores arbitrarios). Si no, los
+        # colores por defecto con el modo elegido.
+        if ctx.circle_use_cover and ctx.cover_palette:
+            stops, mode = ctx.cover_palette, "oklch"
+        else:
+            stops, mode = [ctx.colors[0], ctx.colors[1]], ctx.circle_gradient_mode
+        grad = self._gradient(n, stops, mode)
         slot = 2.0 * math.pi / n
         half = slot * 0.5 * FILL                 # semiancho angular de cada barra
 
