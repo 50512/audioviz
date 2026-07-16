@@ -79,6 +79,8 @@ class RenderContext:
     max_height_frac: float                      # tope de altura de las barras verticales, fraccion 0..1
     colors: Sequence[tuple[int, int, int]]      # color por canal
     grid_color: tuple[int, int, int]            # color de las lineas de base
+    bars_gradient_mode: str                     # color de las barras: solid/rgb/warm/cool/oklch
+    bars_gradient_scope: str                    # alcance del degradado de barras: channel/span
     center: tuple[int, int]                     # centro del disco/vinilo central (px)
     disc_radius: float                          # radio del vinilo central (px), este o no visible
     circle_radius_mult: float                   # multiplicador del radio interior del circulo de barras

@@ -36,8 +36,10 @@ from .metadata import MetadataMonitor
 from .settings_panel import SettingsPanel
 from .thumbnail import NO_ART, ThumbnailMonitor
 from .visualizations import RenderContext, build_visualizations
-from .visualizations.circle_bars import (DEFAULT_GRADIENT, DEFAULT_RADIUS_MULT,
-                                         GRADIENT_MODES)
+from .visualizations.bars import (BARS_GRADIENT_MODES, BARS_SCOPES,
+                                  DEFAULT_BARS_GRADIENT, DEFAULT_BARS_SCOPE)
+from .visualizations.circle_bars import DEFAULT_RADIUS_MULT
+from .visualizations.gradient import DEFAULT_GRADIENT, GRADIENT_MODES
 
 BG = (14, 14, 18)
 GRID = (34, 34, 42)
@@ -283,7 +285,8 @@ class ViewState:
     def __init__(self, show_metadata: bool, thumb_mode: int, max_bar_height: float,
                  enabled_viz: dict[str, bool], circle_radius_mult: float = 1.1,
                  circle_max_height: float = 100.0, circle_gradient_mode: str = "rgb",
-                 vinyl_scale: float = 1.0, fullscreen_display: int = 0):
+                 vinyl_scale: float = 1.0, bars_gradient_mode: str = "solid",
+                 bars_gradient_scope: str = "channel", fullscreen_display: int = 0):
         self.show_metadata = show_metadata
         self.thumb_mode = thumb_mode
         # Tope de altura de las barras verticales, como % del alto de la pantalla.
@@ -303,6 +306,10 @@ class ViewState:
         # Multiplicador del tamano del vinilo. Cascada: reduce el vinilo, la
         # caratula y el radio interior del circulo (todos derivan de thumb_box).
         self.vinyl_scale = vinyl_scale
+        # Color de las barras verticales: modo (solid/rgb/warm/cool/oklch) y
+        # alcance del degradado (channel = por canal, span = de extremo a extremo).
+        self.bars_gradient_mode = bars_gradient_mode
+        self.bars_gradient_scope = bars_gradient_scope
         # Indice del monitor al que se ancla la pantalla completa (F11).
         self.fullscreen_display = fullscreen_display
 
@@ -334,6 +341,12 @@ def main() -> None:
     ap.add_argument("--vinyl-scale", type=float, default=1.0,
                      help="multiplicador del tamano del vinilo (y en cascada de la "
                           "caratula y el radio del circulo); 0.3-1.0")
+    ap.add_argument("--bars-gradient", default=DEFAULT_BARS_GRADIENT, choices=BARS_GRADIENT_MODES,
+                     help="color de las barras verticales: solid (por canal) o un "
+                          "degradado (rgb/warm/cool/oklch)")
+    ap.add_argument("--bars-scope", default=DEFAULT_BARS_SCOPE, choices=BARS_SCOPES,
+                     help="alcance del degradado de barras: channel (grave->agudo por "
+                          "canal) o span (grave L -> grave R, todo el ancho)")
     ap.add_argument("--metadata-url", default=DEFAULT_METADATA_URL,
                      help="WebSocket de now-playing (vacio para desactivarlo del todo)")
     ap.add_argument("--thumbnail-url", default=DEFAULT_THUMBNAIL_URL,
@@ -388,7 +401,9 @@ def main() -> None:
                      circle_radius_mult=args.circle_radius_mult,
                      circle_max_height=args.circle_max_height,
                      circle_gradient_mode=args.circle_gradient,
-                     vinyl_scale=args.vinyl_scale, fullscreen_display=0)
+                     vinyl_scale=args.vinyl_scale,
+                     bars_gradient_mode=args.bars_gradient,
+                     bars_gradient_scope=args.bars_scope, fullscreen_display=0)
     panel = SettingsPanel(engine, view, THUMB_MODE_LABELS, visualizations)
     # Cache: el hilo del socket solo entrega bytes crudos; decodificar a
     # Surface y convert_alpha() necesita el contexto de video, asi que se
@@ -509,6 +524,8 @@ def main() -> None:
             ctx = RenderContext(width=w, height=h, header_h=header_h,
                                 max_height_frac=view.max_bar_height / 100.0,
                                 colors=CH_COLORS, grid_color=GRID,
+                                bars_gradient_mode=view.bars_gradient_mode,
+                                bars_gradient_scope=view.bars_gradient_scope,
                                 center=(w // 2, h // 2), disc_radius=disc_radius,
                                 circle_radius_mult=view.circle_radius_mult,
                                 circle_max_height_frac=view.circle_max_height / 100.0,
