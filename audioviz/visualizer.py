@@ -188,9 +188,13 @@ def draw_metadata_bar(surf, font, w, info) -> None:
     surf.blit(text, (x, y))
 
 
-def thumb_box(w, h) -> int:
-    """Lado del recuadro donde entra la caratula, acotado a THUMB_MIN/MAX_PX."""
-    return max(THUMB_MIN_PX, min(int(min(w, h) * THUMB_FRACTION), THUMB_MAX_PX))
+def thumb_box(w, h, scale: float = 1.0) -> int:
+    """Lado del recuadro donde entra la caratula. El tamano "natural" se acota a
+    THUMB_MIN/MAX_PX y luego se multiplica por `scale` (permite reducirlo por
+    debajo del minimo natural a voluntad). Como el vinilo y el radio del circulo
+    se derivan de este lado, escalarlo aca los reduce a todos en cascada."""
+    natural = max(THUMB_MIN_PX, min(int(min(w, h) * THUMB_FRACTION), THUMB_MAX_PX))
+    return max(1, int(natural * scale))
 
 
 def fit_within(orig_size, box) -> tuple[int, int]:
@@ -279,7 +283,7 @@ class ViewState:
     def __init__(self, show_metadata: bool, thumb_mode: int, max_bar_height: float,
                  enabled_viz: dict[str, bool], circle_radius_mult: float = 1.1,
                  circle_max_height: float = 100.0, circle_gradient_mode: str = "rgb",
-                 fullscreen_display: int = 0):
+                 vinyl_scale: float = 1.0, fullscreen_display: int = 0):
         self.show_metadata = show_metadata
         self.thumb_mode = thumb_mode
         # Tope de altura de las barras verticales, como % del alto de la pantalla.
@@ -296,6 +300,9 @@ class ViewState:
         self.circle_max_height = circle_max_height
         # Modo de degradado del circulo (rgb/warm/cool/oklab). Ajustable en vivo.
         self.circle_gradient_mode = circle_gradient_mode
+        # Multiplicador del tamano del vinilo. Cascada: reduce el vinilo, la
+        # caratula y el radio interior del circulo (todos derivan de thumb_box).
+        self.vinyl_scale = vinyl_scale
         # Indice del monitor al que se ancla la pantalla completa (F11).
         self.fullscreen_display = fullscreen_display
 
@@ -324,6 +331,9 @@ def main() -> None:
     ap.add_argument("--circle-gradient", default=DEFAULT_GRADIENT, choices=GRADIENT_MODES,
                      help="modo de degradado del circulo: rgb (medio gris), warm "
                           "(via verde/amarillo), cool (via magenta), oklch (perceptual)")
+    ap.add_argument("--vinyl-scale", type=float, default=1.0,
+                     help="multiplicador del tamano del vinilo (y en cascada de la "
+                          "caratula y el radio del circulo); 0.3-1.0")
     ap.add_argument("--metadata-url", default=DEFAULT_METADATA_URL,
                      help="WebSocket de now-playing (vacio para desactivarlo del todo)")
     ap.add_argument("--thumbnail-url", default=DEFAULT_THUMBNAIL_URL,
@@ -336,6 +346,8 @@ def main() -> None:
         ap.error("--circle-radius-mult debe estar entre 1.0 y 3.0")
     if not 0.0 <= args.circle_max_height <= 100.0:
         ap.error("--circle-max-height debe estar entre 0 y 100")
+    if not 0.3 <= args.vinyl_scale <= 1.0:
+        ap.error("--vinyl-scale debe estar entre 0.3 y 1.0")
 
     pygame.init()
     pygame.freetype.init()
@@ -375,7 +387,8 @@ def main() -> None:
                      max_bar_height=args.max_bar_height, enabled_viz=enabled_viz,
                      circle_radius_mult=args.circle_radius_mult,
                      circle_max_height=args.circle_max_height,
-                     circle_gradient_mode=args.circle_gradient, fullscreen_display=0)
+                     circle_gradient_mode=args.circle_gradient,
+                     vinyl_scale=args.vinyl_scale, fullscreen_display=0)
     panel = SettingsPanel(engine, view, THUMB_MODE_LABELS, visualizations)
     # Cache: el hilo del socket solo entrega bytes crudos; decodificar a
     # Surface y convert_alpha() necesita el contexto de video, asi que se
@@ -492,7 +505,7 @@ def main() -> None:
             # Geometria del vinilo central: la comparte el ctx para que las
             # visualizaciones (p.ej. el circulo) se ubiquen respecto al disco,
             # este visible o no. Misma cuenta que usa el bloque del vinilo.
-            disc_radius = thumb_box(w, h) * VINYL_ART_RATIO / 2.0
+            disc_radius = thumb_box(w, h, view.vinyl_scale) * VINYL_ART_RATIO / 2.0
             ctx = RenderContext(width=w, height=h, header_h=header_h,
                                 max_height_frac=view.max_bar_height / 100.0,
                                 colors=CH_COLORS, grid_color=GRID,
@@ -535,7 +548,7 @@ def main() -> None:
                         art_panel = art_panel_for = None  # invalida el panel: hay imagen nueva
 
             center = (w // 2, h // 2)
-            box = thumb_box(w, h)
+            box = thumb_box(w, h, view.vinyl_scale)
 
             # Disco de fondo: cacheado por diametro, rotado por frame.
             if show_vinyl:
