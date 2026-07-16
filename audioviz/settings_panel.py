@@ -194,6 +194,11 @@ class SettingsPanel:
         self.font_title = pygame.font.SysFont("consolas", 16, bold=True)
 
         eng = engine
+        # Monitores disponibles para anclar la pantalla completa (F11). La fila
+        # solo aparece si hay mas de uno; el label muestra el indice y su tamano.
+        n_disp = pygame.display.get_num_displays()
+        disp_sizes = pygame.display.get_desktop_sizes()
+        disp_labels = [f"{i + 1}: {w}x{h}" for i, (w, h) in enumerate(disp_sizes)]
         # note_lo/hi viajan como texto ('C0'); el slider trabaja en MIDI y
         # convierte al vuelo. parse_note('C0')=12, parse_note('F#10')=138.
         self.rows = [
@@ -237,6 +242,10 @@ class SettingsPanel:
             _Row("vista", Stepper(lambda: view.thumb_mode,
                                   lambda v: setattr(view, "thumb_mode", v),
                                   list(range(len(thumb_mode_labels))), thumb_mode_labels)),
+            _Row("pantalla", Stepper(lambda: view.fullscreen_display,
+                                     lambda v: setattr(view, "fullscreen_display", v),
+                                     list(range(n_disp)), disp_labels),
+                 visible=lambda: n_disp > 1),
         ]
 
     def toggle(self) -> None:

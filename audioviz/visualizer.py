@@ -11,6 +11,7 @@ Teclas:
     W / S       decay   -/+
     M           metadata (now playing) on/off
     C           vista: caratula+disco / disco / caratula / nada
+    F11         pantalla completa on/off
     TAB         panel de configuracion (mouse) on/off
     ESC         salir (o cerrar el panel si esta abierto)
 
@@ -20,8 +21,11 @@ Requiere: pip install pygame-ce websockets
 from __future__ import annotations
 
 import argparse
+import ctypes
+import glob
 import io
 import math
+import os
 
 import numpy as np
 import pygame
@@ -65,6 +69,52 @@ VINYL_SPIN_DPS = 45.0        # grados por segundo mientras hay reproduccion
 
 DEFAULT_METADATA_URL = "ws://100.97.196.102:25012/ws/media-info"
 DEFAULT_THUMBNAIL_URL = "ws://100.97.196.102:25012/ws/thumbnail"
+
+
+_display_bounds_cache: list[tuple[int, int, int, int]] | None = None
+
+
+def _load_display_bounds() -> list[tuple[int, int, int, int]]:
+    """Origen y tamano (x, y, w, h) de cada monitor, via SDL_GetDisplayBounds.
+    pygame solo expone get_desktop_sizes() (tamanos, sin origen), pero para
+    anclar la pantalla completa a un monitor concreto necesitamos su esquina en
+    el escritorio virtual. Llamamos a la SDL2.dll que trae pygame por ctypes.
+    Devuelve [] si algo falla (el llamador cae a un valor por defecto)."""
+    try:
+        dll = os.path.join(os.path.dirname(pygame.__file__), "SDL2.dll")
+        if not os.path.exists(dll):
+            cands = glob.glob(os.path.join(os.path.dirname(pygame.__file__), "SDL2.dll"))
+            if not cands:
+                return []
+            dll = cands[0]
+        sdl = ctypes.CDLL(dll)
+
+        class _Rect(ctypes.Structure):
+            _fields_ = [("x", ctypes.c_int), ("y", ctypes.c_int),
+                        ("w", ctypes.c_int), ("h", ctypes.c_int)]
+
+        sdl.SDL_GetDisplayBounds.argtypes = [ctypes.c_int, ctypes.POINTER(_Rect)]
+        out = []
+        for i in range(pygame.display.get_num_displays()):
+            r = _Rect()
+            if sdl.SDL_GetDisplayBounds(i, ctypes.byref(r)) == 0:
+                out.append((r.x, r.y, r.w, r.h))
+        return out
+    except Exception:
+        return []
+
+
+def display_bounds(idx: int) -> tuple[int, int, int, int]:
+    """(x, y, w, h) del monitor idx (acotado a los disponibles). Si SDL no
+    coopera, cae al monitor primario en (0,0)."""
+    global _display_bounds_cache
+    if _display_bounds_cache is None:
+        _display_bounds_cache = _load_display_bounds()
+    bounds = _display_bounds_cache
+    if not bounds:
+        w, h = pygame.display.get_desktop_sizes()[0]
+        return (0, 0, w, h)
+    return bounds[max(0, min(idx, len(bounds) - 1))]
 
 
 def draw_channel(surf, band_h, rect, color, reverse=False):
@@ -235,10 +285,13 @@ class ViewState:
     Lo comparten los atajos de teclado, el panel de configuracion y el codigo
     de dibujo: una unica fuente de verdad para que no se desincronicen."""
 
-    def __init__(self, show_metadata: bool, thumb_mode: int, max_bar_height: float):
+    def __init__(self, show_metadata: bool, thumb_mode: int, max_bar_height: float,
+                 fullscreen_display: int = 0):
         self.show_metadata = show_metadata
         self.thumb_mode = thumb_mode
         self.max_bar_height = max_bar_height
+        # Indice del monitor al que se ancla la pantalla completa (F11).
+        self.fullscreen_display = fullscreen_display
 
 
 def main() -> None:
@@ -295,7 +348,7 @@ def main() -> None:
     THUMB_MODE_LABELS = ["disco+car", "disco", "caratula", "nada"]
 
     view = ViewState(show_metadata=True, thumb_mode=0,
-                     max_bar_height=args.max_bar_height)
+                     max_bar_height=args.max_bar_height, fullscreen_display=0)
     panel = SettingsPanel(engine, view, THUMB_MODE_LABELS)
     # Cache: el hilo del socket solo entrega bytes crudos; decodificar a
     # Surface y convert_alpha() necesita el contexto de video, asi que se
@@ -312,6 +365,26 @@ def main() -> None:
     running = True
     elapsed = 0.0
 
+    # F11 alterna pantalla completa. Guardamos el tamano de la ventana (que el
+    # usuario pudo haber redimensionado) para restaurarlo al volver.
+    fullscreen = False
+    windowed_size = screen.get_size()
+    applied_display = view.fullscreen_display   # monitor que ya esta aplicado
+
+    def clamp_display(idx: int) -> int:
+        return max(0, min(idx, pygame.display.get_num_displays() - 1))
+
+    def enter_fullscreen(idx: int):
+        # Ventana sin bordes (NOFRAME) del tamano del monitor elegido, MOVIDA a su
+        # esquina real. Reusar la ventana hace que set_mode(display=idx) se ignore
+        # (crece en el sitio), asi que reposicionamos a mano con el origen que da
+        # SDL_GetDisplayBounds. Devuelve (superficie, indice aplicado).
+        idx = clamp_display(idx)
+        x, y, w, h = display_bounds(idx)
+        surf = pygame.display.set_mode((w, h), pygame.NOFRAME)
+        pygame.display.set_window_position((x, y))
+        return surf, idx
+
     while running:
         for ev in pygame.event.get():
             if ev.type == pygame.QUIT:
@@ -322,6 +395,26 @@ def main() -> None:
             # atajo. Con el panel cerrado los atajos directos siguen intactos.
             if ev.type == pygame.KEYDOWN and ev.key == pygame.K_TAB:
                 panel.toggle()
+                continue
+            # F11 alterna pantalla completa <-> ventana. Usamos borderless (una
+            # ventana sin bordes del tamano del escritorio): conserva la
+            # resolucion nativa del display y evita los glitches del cambio de
+            # modo que trae FULLSCREEN real. Al entrar guardamos el tamano
+            # actual; al salir lo restauramos como ventana redimensionable.
+            if ev.type == pygame.KEYDOWN and ev.key == pygame.K_F11:
+                fullscreen = not fullscreen
+                if fullscreen:
+                    windowed_size = screen.get_size()
+                    screen, applied_display = enter_fullscreen(view.fullscreen_display)
+                else:
+                    # Volvemos a ventana redimensionable y la centramos en el
+                    # monitor donde estaba la pantalla completa; si no, se queda en
+                    # la esquina con la barra de titulo fuera de la pantalla.
+                    screen = pygame.display.set_mode(windowed_size, pygame.RESIZABLE)
+                    mx, my, mw, mh = display_bounds(applied_display)
+                    ww, wh = windowed_size
+                    pygame.display.set_window_position(
+                        (mx + max(0, (mw - ww) // 2), my + max(0, (mh - wh) // 2)))
                 continue
             if panel.handle(ev, screen.get_size()):
                 continue
@@ -346,6 +439,12 @@ def main() -> None:
                     view.show_metadata = not view.show_metadata
                 elif ev.key == pygame.K_c:
                     view.thumb_mode = (view.thumb_mode + 1) % len(THUMB_MODES)
+
+        # Si el panel cambio el monitor de destino mientras estamos en pantalla
+        # completa, movemos la ventana al nuevo monitor en caliente. (El panel no
+        # puede llamar a set_mode el mismo: dejaria obsoleto este 'screen'.)
+        if fullscreen and view.fullscreen_display != applied_display:
+            screen, applied_display = enter_fullscreen(view.fullscreen_display)
 
         frame = engine.poll()          # <- lo unico que la GUI le pide al motor
         screen.fill(BG)
@@ -450,7 +549,7 @@ def main() -> None:
                 screen.blit(art_panel, art_panel.get_rect(center=center))
 
         screen.blit(font.render(hud, True, TEXT), (16, header_h + 16))
-        screen.blit(font.render("1/2/3/4 fuente   Q/A attack   W/S decay   M metadata   C vista   TAB config   ESC salir",
+        screen.blit(font.render("1/2/3/4 fuente   Q/A attack   W/S decay   M metadata   C vista   F11 pantalla completa   TAB config   ESC salir",
                                 True, GRID), (16, header_h + 34))
         panel.draw(screen)   # modal encima de todo, si esta abierto
         pygame.display.flip()
