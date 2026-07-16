@@ -10,7 +10,7 @@ from __future__ import annotations
 import pygame
 
 from ..engine import VizFrame
-from .base import RenderContext, Visualization
+from .base import RenderContext, SliderSetting, Visualization
 
 
 def draw_channel(surf, band_h, rect, color, reverse=False):
@@ -29,6 +29,12 @@ class BarsVisualization(Visualization):
     id = "bars"
     label = "barras"
     default_on = True
+
+    def settings(self) -> list:
+        return [
+            SliderSetting("alto", "max_bar_height", 0, 100, step=1,
+                          fmt=lambda v: f"{int(v)} %"),
+        ]
 
     def draw(self, surf: pygame.Surface, frame: VizFrame, ctx: RenderContext) -> None:
         heights = frame.normalized()           # (channels, n_bands) en 0..1

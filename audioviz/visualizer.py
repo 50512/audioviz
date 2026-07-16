@@ -36,6 +36,8 @@ from .metadata import MetadataMonitor
 from .settings_panel import SettingsPanel
 from .thumbnail import NO_ART, ThumbnailMonitor
 from .visualizations import RenderContext, build_visualizations
+from .visualizations.circle_bars import (DEFAULT_GRADIENT, DEFAULT_RADIUS_MULT,
+                                         GRADIENT_MODES)
 
 BG = (14, 14, 18)
 GRID = (34, 34, 42)
@@ -275,13 +277,25 @@ class ViewState:
     de dibujo: una unica fuente de verdad para que no se desincronicen."""
 
     def __init__(self, show_metadata: bool, thumb_mode: int, max_bar_height: float,
-                 enabled_viz: dict[str, bool], fullscreen_display: int = 0):
+                 enabled_viz: dict[str, bool], circle_radius_mult: float = 1.1,
+                 circle_max_height: float = 100.0, circle_gradient_mode: str = "rgb",
+                 fullscreen_display: int = 0):
         self.show_metadata = show_metadata
         self.thumb_mode = thumb_mode
+        # Tope de altura de las barras verticales, como % del alto de la pantalla.
         self.max_bar_height = max_bar_height
         # Que visualizaciones estan activas, por id. El visualizador dibuja todas
         # las activas (superpuestas); el panel de configuracion las alterna.
         self.enabled_viz = enabled_viz
+        # Multiplicador del radio interior del circulo de barras (x el radio del
+        # vinilo). Ajustable en caliente desde el panel.
+        self.circle_radius_mult = circle_radius_mult
+        # Tope de largo de las barras del circulo, como % del espacio disponible.
+        # Independiente de max_bar_height: el circulo tiene menos recorrido radial
+        # y compartir el limite le recortaria demasiado el rango de movimiento.
+        self.circle_max_height = circle_max_height
+        # Modo de degradado del circulo (rgb/warm/cool/oklab). Ajustable en vivo.
+        self.circle_gradient_mode = circle_gradient_mode
         # Indice del monitor al que se ancla la pantalla completa (F11).
         self.fullscreen_display = fullscreen_display
 
@@ -301,6 +315,15 @@ def main() -> None:
     ap.add_argument("--seconds", type=float, default=0.0, help="0 = infinito")
     ap.add_argument("--max-bar-height", type=float, default=100.0,
                      help="altura maxima de las barras, como %% del alto de la pantalla (0-100)")
+    ap.add_argument("--circle-radius-mult", type=float, default=DEFAULT_RADIUS_MULT,
+                     help="radio interior del circulo de barras, como multiplo del radio "
+                          "del vinilo central (1.0-3.0)")
+    ap.add_argument("--circle-max-height", type=float, default=100.0,
+                     help="largo maximo de las barras del circulo, como %% del espacio "
+                          "disponible hasta el borde (0-100)")
+    ap.add_argument("--circle-gradient", default=DEFAULT_GRADIENT, choices=GRADIENT_MODES,
+                     help="modo de degradado del circulo: rgb (medio gris), warm "
+                          "(via verde/amarillo), cool (via magenta), oklch (perceptual)")
     ap.add_argument("--metadata-url", default=DEFAULT_METADATA_URL,
                      help="WebSocket de now-playing (vacio para desactivarlo del todo)")
     ap.add_argument("--thumbnail-url", default=DEFAULT_THUMBNAIL_URL,
@@ -309,6 +332,10 @@ def main() -> None:
 
     if not 0.0 <= args.max_bar_height <= 100.0:
         ap.error("--max-bar-height debe estar entre 0 y 100")
+    if not 1.0 <= args.circle_radius_mult <= 3.0:
+        ap.error("--circle-radius-mult debe estar entre 1.0 y 3.0")
+    if not 0.0 <= args.circle_max_height <= 100.0:
+        ap.error("--circle-max-height debe estar entre 0 y 100")
 
     pygame.init()
     pygame.freetype.init()
@@ -346,7 +373,9 @@ def main() -> None:
 
     view = ViewState(show_metadata=True, thumb_mode=0,
                      max_bar_height=args.max_bar_height, enabled_viz=enabled_viz,
-                     fullscreen_display=0)
+                     circle_radius_mult=args.circle_radius_mult,
+                     circle_max_height=args.circle_max_height,
+                     circle_gradient_mode=args.circle_gradient, fullscreen_display=0)
     panel = SettingsPanel(engine, view, THUMB_MODE_LABELS, visualizations)
     # Cache: el hilo del socket solo entrega bytes crudos; decodificar a
     # Surface y convert_alpha() necesita el contexto de video, asi que se
@@ -467,7 +496,10 @@ def main() -> None:
             ctx = RenderContext(width=w, height=h, header_h=header_h,
                                 max_height_frac=view.max_bar_height / 100.0,
                                 colors=CH_COLORS, grid_color=GRID,
-                                center=(w // 2, h // 2), disc_radius=disc_radius)
+                                center=(w // 2, h // 2), disc_radius=disc_radius,
+                                circle_radius_mult=view.circle_radius_mult,
+                                circle_max_height_frac=view.circle_max_height / 100.0,
+                                circle_gradient_mode=view.circle_gradient_mode)
             for viz in visualizations:
                 if view.enabled_viz.get(viz.id):
                     viz.draw(screen, frame, ctx)

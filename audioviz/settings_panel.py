@@ -19,6 +19,7 @@ from typing import Callable
 import pygame
 
 from .analysis import NOTES, parse_note
+from .visualizations.base import SliderSetting, StepperSetting, ToggleSetting
 
 # Paleta, alineada con la del visualizador (fondo 14,14,18 / acento 90,200,250).
 OVERLAY = (0, 0, 0, 150)          # oscurece el fondo para enfocar el modal
@@ -36,8 +37,14 @@ BTN_TEXT = (200, 202, 214)
 TOGGLE_ON = (90, 200, 140)
 TOGGLE_OFF = (66, 68, 82)
 TOGGLE_KNOB = (232, 234, 242)
+TAB_ACTIVE_BG = (52, 55, 68)     # pestana seleccionada
+TAB_INACTIVE_BG = (28, 29, 38)   # pestanas de fondo
+TAB_ACCENT = (90, 200, 250)      # subrayado de la pestana activa (acento frio)
+TAB_TEXT_ON = (225, 225, 232)
+TAB_TEXT_OFF = (140, 142, 156)
 
 ROW_H = 34
+TAB_H = 30
 PAD = 16
 LABEL_W = 116
 PANEL_W = 430
@@ -199,9 +206,11 @@ class SettingsPanel:
         n_disp = pygame.display.get_num_displays()
         disp_sizes = pygame.display.get_desktop_sizes()
         disp_labels = [f"{i + 1}: {w}x{h}" for i, (w, h) in enumerate(disp_sizes)]
+
+        # --- pestana AUDIO: todo lo del motor de sonido/analisis --------------
         # note_lo/hi viajan como texto ('C0'); el slider trabaja en MIDI y
         # convierte al vuelo. parse_note('C0')=12, parse_note('F#10')=138.
-        self.rows = [
+        audio = [
             _Row("fuente", Stepper(lambda: eng.source_name, self._set_source,
                                    ["fb2k", "loopback", "mic", "tone"])),
             _Row("attack", Slider(lambda: eng.attack_ms,
@@ -210,9 +219,6 @@ class SettingsPanel:
             _Row("decay", Slider(lambda: eng.decay_ms,
                                  lambda v: setattr(eng, "decay_ms", v),
                                  0, 1000, step=5, fmt=lambda v: f"{int(v)} ms")),
-            _Row("alto barras", Slider(lambda: view.max_bar_height,
-                                       lambda v: setattr(view, "max_bar_height", v),
-                                       0, 100, step=1, fmt=lambda v: f"{int(v)} %")),
             _Row("distribucion", Stepper(lambda: eng.distribution,
                                          lambda v: eng.reconfigure_analysis(distribution=v),
                                          ["log", "octaves"])),
@@ -237,6 +243,10 @@ class SettingsPanel:
                                      400, 480, step=0.5, integer=False,
                                      fmt=lambda v: f"{v:.1f} Hz"),
                  visible=lambda: eng.distribution == "octaves"),
+        ]
+
+        # --- pestana VISUAL: presentacion general + que visualizaciones se ven -
+        visual = [
             _Row("metadata", Toggle(lambda: view.show_metadata,
                                     lambda v: setattr(view, "show_metadata", v))),
             _Row("vista", Stepper(lambda: view.thumb_mode,
@@ -247,14 +257,37 @@ class SettingsPanel:
                                      list(range(n_disp)), disp_labels),
                  visible=lambda: n_disp > 1),
         ]
-
-        # Un interruptor por visualizacion registrada. Leen/escriben el dict de
-        # activacion de la vista; el id se ata por argumento por defecto para que
-        # cada lambda capture el suyo (y no el ultimo del bucle).
+        # Un interruptor por visualizacion registrada. El id se ata por argumento
+        # por defecto para que cada lambda capture el suyo (no el ultimo del bucle).
         for viz in visualizations:
-            self.rows.append(
+            visual.append(
                 _Row(viz.label, Toggle(lambda vid=viz.id: view.enabled_viz.get(vid, False),
                                        lambda v, vid=viz.id: view.enabled_viz.__setitem__(vid, v))))
+
+        # (label, filas) por pestana. Las dos fijas primero; luego una por cada
+        # visualizacion que declare ajustes propios (settings()).
+        self.tabs: list[tuple[str, list[_Row]]] = [("audio", audio), ("visual", visual)]
+        for viz in visualizations:
+            rows = [self._row_from_spec(spec) for spec in viz.settings()]
+            if rows:
+                self.tabs.append((viz.label, rows))
+        self.active_tab = 0
+        self._tab_rects: list[pygame.Rect] = []
+
+    def _row_from_spec(self, spec) -> "_Row":
+        """Traduce un spec de ajuste (declarado por la visualizacion) al widget
+        correspondiente, cableado por getattr/setattr al atributo del ViewState."""
+        view = self.view
+        get = lambda a=spec.attr: getattr(view, a)
+        setr = lambda v, a=spec.attr: setattr(view, a, v)
+        if isinstance(spec, SliderSetting):
+            return _Row(spec.label, Slider(get, setr, spec.lo, spec.hi, step=spec.step,
+                                           integer=spec.integer, fmt=spec.fmt))
+        if isinstance(spec, StepperSetting):
+            return _Row(spec.label, Stepper(get, setr, list(spec.values), spec.labels))
+        if isinstance(spec, ToggleSetting):
+            return _Row(spec.label, Toggle(get, setr))
+        raise TypeError(f"spec de ajuste no soportado: {type(spec).__name__}")
 
     def toggle(self) -> None:
         self.open = not self.open
@@ -266,15 +299,26 @@ class SettingsPanel:
             print(f"no se pudo cambiar de fuente: {exc}")
 
     def _visible_rows(self):
-        return [r for r in self.rows if r.visible()]
+        """Filas visibles de la pestana activa."""
+        return [r for r in self.tabs[self.active_tab][1] if r.visible()]
 
     def _layout(self, size) -> None:
         rows = self._visible_rows()
         title_h = 30
-        h = PAD + title_h + len(rows) * ROW_H + PAD
+        h = PAD + title_h + TAB_H + len(rows) * ROW_H + PAD
         w, sh = size
         self.rect = pygame.Rect((w - PANEL_W) // 2, (sh - h) // 2, PANEL_W, h)
-        y = self.rect.y + PAD + title_h
+
+        # Barra de pestanas: reparte el ancho util en partes iguales.
+        tabs_y = self.rect.y + PAD + title_h
+        avail = PANEL_W - 2 * PAD
+        tw = avail / len(self.tabs)
+        self._tab_rects = [
+            pygame.Rect(int(self.rect.x + PAD + i * tw), tabs_y, int(tw) - 3, TAB_H - 6)
+            for i in range(len(self.tabs))
+        ]
+
+        y = tabs_y + TAB_H
         cx = self.rect.x + PAD + LABEL_W
         cw = self.rect.right - PAD - cx
         for r in rows:
@@ -291,6 +335,13 @@ class SettingsPanel:
         if ev.type == pygame.KEYDOWN and ev.key == pygame.K_ESCAPE:
             self.open = False
             return True
+
+        # Click en una pestana: cambia de seccion.
+        if ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
+            for i, tr in enumerate(self._tab_rects):
+                if tr.collidepoint(ev.pos):
+                    self.active_tab = i
+                    return True
 
         for r in self._visible_rows():
             if r.control.handle(ev):
@@ -322,6 +373,19 @@ class SettingsPanel:
         surf.blit(title, (self.rect.x + PAD, self.rect.y + PAD))
         hint = self.font.render("TAB / ESC cerrar", True, LABEL)
         surf.blit(hint, (self.rect.right - PAD - hint.get_width(), self.rect.y + PAD + 2))
+
+        # Pestanas: la activa mas clara y con un subrayado de acento.
+        mouse = pygame.mouse.get_pos()
+        for i, (label, _) in enumerate(self.tabs):
+            tr = self._tab_rects[i]
+            active = i == self.active_tab
+            bg = TAB_ACTIVE_BG if (active or tr.collidepoint(mouse)) else TAB_INACTIVE_BG
+            pygame.draw.rect(surf, bg, tr, border_radius=6)
+            if active:
+                pygame.draw.line(surf, TAB_ACCENT, (tr.x + 6, tr.bottom - 1),
+                                 (tr.right - 6, tr.bottom - 1), 2)
+            t = self.font.render(label, True, TAB_TEXT_ON if active else TAB_TEXT_OFF)
+            surf.blit(t, (tr.centerx - t.get_width() // 2, tr.centery - t.get_height() // 2))
 
         for r in self._visible_rows():
             cr = r.control.rect
