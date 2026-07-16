@@ -26,6 +26,7 @@ import glob
 import io
 import math
 import os
+import warnings
 
 import numpy as np
 import pygame
@@ -100,6 +101,27 @@ def build_monitors(host: str):
     return meta, thumb
 
 
+_sdl_cache: object | None = None
+
+
+def _sdl_lib():
+    """La SDL2.dll que trae pygame, cargada por ctypes y cacheada (None si no se
+    puede). La usamos para funciones que pygame no expone: origen de cada monitor,
+    alto del marco de la ventana y posicion global del cursor. El sentinel False
+    evita reintentar una carga que ya fallo."""
+    global _sdl_cache
+    if _sdl_cache is None:
+        try:
+            dll = os.path.join(os.path.dirname(pygame.__file__), "SDL2.dll")
+            if not os.path.exists(dll):
+                cands = glob.glob(os.path.join(os.path.dirname(pygame.__file__), "SDL2*.dll"))
+                dll = cands[0] if cands else None
+            _sdl_cache = ctypes.CDLL(dll) if dll else False
+        except Exception:
+            _sdl_cache = False
+    return _sdl_cache or None
+
+
 _display_bounds_cache: list[tuple[int, int, int, int]] | None = None
 
 
@@ -109,15 +131,10 @@ def _load_display_bounds() -> list[tuple[int, int, int, int]]:
     anclar la pantalla completa a un monitor concreto necesitamos su esquina en
     el escritorio virtual. Llamamos a la SDL2.dll que trae pygame por ctypes.
     Devuelve [] si algo falla (el llamador cae a un valor por defecto)."""
+    sdl = _sdl_lib()
+    if sdl is None:
+        return []
     try:
-        dll = os.path.join(os.path.dirname(pygame.__file__), "SDL2.dll")
-        if not os.path.exists(dll):
-            cands = glob.glob(os.path.join(os.path.dirname(pygame.__file__), "SDL2.dll"))
-            if not cands:
-                return []
-            dll = cands[0]
-        sdl = ctypes.CDLL(dll)
-
         class _Rect(ctypes.Structure):
             _fields_ = [("x", ctypes.c_int), ("y", ctypes.c_int),
                         ("w", ctypes.c_int), ("h", ctypes.c_int)]
@@ -131,6 +148,59 @@ def _load_display_bounds() -> list[tuple[int, int, int, int]]:
         return out
     except Exception:
         return []
+
+
+def _window_top_border(win) -> int:
+    """Alto en px del marco superior (title bar + borde) de la ventana, via
+    SDL_GetWindowBordersSize. Se consulta con la ventana AUN con bordes: es el
+    desplazamiento que hay que compensar al pasar a frameless (subir la ventana
+    ese alto). Cae a 31 (title bar tipica a 100%% DPI en Windows) si SDL no ayuda."""
+    sdl = _sdl_lib()
+    if sdl is not None:
+        try:
+            sdl.SDL_GetWindowFromID.restype = ctypes.c_void_p
+            sdl.SDL_GetWindowFromID.argtypes = [ctypes.c_uint32]
+            wptr = sdl.SDL_GetWindowFromID(ctypes.c_uint32(win.id))
+            top = ctypes.c_int(); left = ctypes.c_int()
+            bottom = ctypes.c_int(); right = ctypes.c_int()
+            sdl.SDL_GetWindowBordersSize.argtypes = \
+                [ctypes.c_void_p] + [ctypes.POINTER(ctypes.c_int)] * 4
+            rc = sdl.SDL_GetWindowBordersSize(wptr, ctypes.byref(top), ctypes.byref(left),
+                                              ctypes.byref(bottom), ctypes.byref(right))
+            if rc == 0 and top.value > 0:
+                return top.value
+        except Exception:
+            pass
+    return 31
+
+
+def _global_mouse() -> tuple[int, int] | None:
+    """Posicion absoluta del cursor en el escritorio (px), via SDL. Es
+    independiente de la ventana, asi arrastrar no se realimenta cuando movemos la
+    ventana bajo el puntero. None si SDL no coopera (el llamador no arrastra)."""
+    sdl = _sdl_lib()
+    if sdl is None:
+        return None
+    try:
+        sdl.SDL_GetGlobalMouseState.argtypes = \
+            [ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int)]
+        sdl.SDL_GetGlobalMouseState.restype = ctypes.c_uint32
+        x = ctypes.c_int(); y = ctypes.c_int()
+        sdl.SDL_GetGlobalMouseState(ctypes.byref(x), ctypes.byref(y))
+        return (x.value, y.value)
+    except Exception:
+        return None
+
+
+def _display_window():
+    """pygame.Window de la ventana creada por el modulo display. Nos deja togglear
+    el borde, mover y redimensionar SIN recrear la superficie (el mismo 'screen'
+    sigue valido; cambiar win.size redimensiona la superficie del display in situ).
+    Silencia el DeprecationWarning de mezclar Window con render por display module:
+    es justo el uso soportado por from_display_module."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        return pygame.Window.from_display_module()
 
 
 def display_bounds(idx: int) -> tuple[int, int, int, int]:
@@ -314,7 +384,8 @@ class ViewState:
                  circle_use_cover: bool = False, bars_cover_2col: str = "gradient",
                  circle_symmetric: bool = False, host: str = "",
                  fullscreen_display: int = 0, palette_strict: bool = True,
-                 palette_relaxed: bool = True, palette_default_fallback: bool = True):
+                 palette_relaxed: bool = True, palette_default_fallback: bool = True,
+                 frameless: bool = False):
         self.show_metadata = show_metadata
         self.thumb_mode = thumb_mode
         # Tope de altura de las barras verticales, como % del alto de la pantalla.
@@ -358,6 +429,12 @@ class ViewState:
         self.palette_strict = palette_strict
         self.palette_relaxed = palette_relaxed
         self.palette_default_fallback = palette_default_fallback
+        # Ventana sin bordes (frameless windowed). Se aplica quitando el marco in
+        # situ y estirando la ventana hacia arriba para recuperar el alto de la
+        # title bar (en frameless Windows no permite redimensionar, asi que ese
+        # alto se compensa). Sin title bar la ventana se arrastra a mano. F11
+        # (pantalla completa) es un estado aparte que manda sobre este.
+        self.frameless = frameless
 
 
 def main() -> None:
@@ -426,6 +503,7 @@ def main() -> None:
     pygame.init()
     pygame.freetype.init()
     screen = pygame.display.set_mode((1000, 560), pygame.RESIZABLE)
+    win = _display_window()   # handle para togglear borde / mover / redimensionar
     pygame.display.set_caption("audioviz")
     clock = pygame.time.Clock()
     font = pygame.font.SysFont("consolas", 14)   # HUD: solo ASCII
@@ -478,7 +556,8 @@ def main() -> None:
                      fullscreen_display=int(eff["fullscreen_display"]),
                      palette_strict=bool(eff["palette_strict"]),
                      palette_relaxed=bool(eff["palette_relaxed"]),
-                     palette_default_fallback=bool(eff["palette_default_fallback"]))
+                     palette_default_fallback=bool(eff["palette_default_fallback"]),
+                     frameless=bool(eff["frameless"]))
     def persist_config() -> None:
         """Vuelca el estado vivo al archivo (salvo --no-config). Best-effort:
         config.save degrada en silencio si no puede escribir. Lo usan el cierre
@@ -523,8 +602,46 @@ def main() -> None:
     windowed_size = screen.get_size()
     applied_display = view.fullscreen_display   # monitor que ya esta aplicado
 
+    # Estado del modo frameless-windowed (distinto de la pantalla completa):
+    #   frameless_applied  -> si la ventana esta ahora mismo sin bordes en modo
+    #                         ventana (con la compensacion de alto aplicada).
+    #   frameless_top      -> px que subimos la ventana al entrar; se revierten al
+    #                         salir (SDL_GetWindowBordersSize da 0 ya sin marco,
+    #                         asi que hay que recordar el valor con el que entramos).
+    # El arrastre manual (no hay title bar) usa la posicion global del cursor.
+    frameless_applied = False
+    frameless_top = 31
+    dragging = False
+    drag_offset = (0, 0)
+
     def clamp_display(idx: int) -> int:
         return max(0, min(idx, pygame.display.get_num_displays() - 1))
+
+    def set_frameless(on: bool) -> None:
+        # Quita/pone el marco IN SITU (sin set_mode: 'screen' sigue valido y
+        # cambiar win.size redimensiona su superficie). Al entrar, sube la ventana
+        # y la agranda 'top' px para que el area dibujable ocupe donde estaba la
+        # title bar; al salir revierte ese delta exacto (los arrastres horizontales
+        # y verticales del usuario se conservan, solo deshacemos la compensacion).
+        nonlocal frameless_applied, frameless_top
+        if on == frameless_applied:
+            return
+        if on:
+            top = _window_top_border(win)   # con la ventana AUN con bordes
+            x, y = win.position
+            w, h = win.size
+            win.borderless = True
+            win.size = (w, h + top)
+            win.position = (x, y - top)
+            frameless_top = top
+            frameless_applied = True
+        else:
+            x, y = win.position
+            w, h = win.size
+            win.position = (x, y + frameless_top)
+            win.size = (w, h - frameless_top)
+            win.borderless = False
+            frameless_applied = False
 
     def enter_fullscreen(idx: int):
         # Ventana sin bordes (NOFRAME) del tamano del monitor elegido, MOVIDA a su
@@ -536,6 +653,11 @@ def main() -> None:
         surf = pygame.display.set_mode((w, h), pygame.NOFRAME)
         pygame.display.set_window_position((x, y))
         return surf, idx
+
+    # Restaura la preferencia frameless guardada (arrancamos en ventana, no en
+    # pantalla completa, asi que se aplica directo sobre la ventana con bordes).
+    if view.frameless:
+        set_frameless(True)
 
     while running:
         # El guardado se dispara al CERRAR el panel: recordamos si estaba abierto
@@ -563,20 +685,52 @@ def main() -> None:
             if not editing and ev.type == pygame.KEYDOWN and ev.key == pygame.K_F11:
                 fullscreen = not fullscreen
                 if fullscreen:
-                    windowed_size = screen.get_size()
+                    # El tamano a restaurar es el de la ventana normal: si estamos
+                    # en frameless le descontamos la compensacion de alto. El
+                    # fullscreen es su propia ventana sin bordes (NOFRAME), asi que
+                    # el estado frameless-windowed deja de estar aplicado.
+                    w, h = screen.get_size()
+                    windowed_size = (w, h - frameless_top) if frameless_applied else (w, h)
+                    frameless_applied = False
+                    dragging = False
                     screen, applied_display = enter_fullscreen(view.fullscreen_display)
+                    win = _display_window()   # set_mode pudo recrear la ventana
                 else:
                     # Volvemos a ventana redimensionable y la centramos en el
                     # monitor donde estaba la pantalla completa; si no, se queda en
                     # la esquina con la barra de titulo fuera de la pantalla.
                     screen = pygame.display.set_mode(windowed_size, pygame.RESIZABLE)
+                    win = _display_window()
                     mx, my, mw, mh = display_bounds(applied_display)
                     ww, wh = windowed_size
                     pygame.display.set_window_position(
                         (mx + max(0, (mw - ww) // 2), my + max(0, (mh - wh) // 2)))
+                    # Re-aplica la preferencia frameless sobre la ventana restaurada.
+                    if view.frameless:
+                        set_frameless(True)
                 continue
             if panel.handle(ev, screen.get_size()):
                 continue
+            # Ventana sin bordes: arrastre manual (no hay title bar que agarrar).
+            # Solo con el panel cerrado (si esta abierto, panel.handle ya se llevo
+            # el clic arriba) y fuera de pantalla completa. La posicion global del
+            # cursor evita realimentacion al mover la ventana bajo el puntero.
+            if frameless_applied and not fullscreen:
+                if ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
+                    gm = _global_mouse()
+                    if gm is not None:
+                        wx, wy = win.position
+                        drag_offset = (gm[0] - wx, gm[1] - wy)
+                        dragging = True
+                    continue
+                if ev.type == pygame.MOUSEMOTION and dragging:
+                    gm = _global_mouse()
+                    if gm is not None:
+                        win.position = (gm[0] - drag_offset[0], gm[1] - drag_offset[1])
+                    continue
+                if ev.type == pygame.MOUSEBUTTONUP and ev.button == 1 and dragging:
+                    dragging = False
+                    continue
             if ev.type == pygame.KEYDOWN:
                 if ev.key == pygame.K_ESCAPE:
                     running = False
@@ -620,6 +774,10 @@ def main() -> None:
                 applied_palette_flags = palette_flags()
                 if thumb_surface is not None:
                     cover_palette = extract_cover_palette(thumb_surface)
+            # Cambio del modo frameless: se aplica al cerrar el panel, salvo en
+            # pantalla completa (ahi se aplicara al salir de ella, con F11).
+            if not fullscreen and view.frameless != frameless_applied:
+                set_frameless(view.frameless)
             persist_config()
 
         # Si el panel cambio el monitor de destino mientras estamos en pantalla
@@ -627,6 +785,7 @@ def main() -> None:
         # puede llamar a set_mode el mismo: dejaria obsoleto este 'screen'.)
         if fullscreen and view.fullscreen_display != applied_display:
             screen, applied_display = enter_fullscreen(view.fullscreen_display)
+            win = _display_window()
 
         frame = engine.poll()          # <- lo unico que la GUI le pide al motor
         screen.fill(BG)

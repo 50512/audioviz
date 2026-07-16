@@ -318,6 +318,14 @@ class SettingsPanel:
                                      lambda v: setattr(view, "fullscreen_display", v),
                                      list(range(n_disp)), disp_labels),
                  visible=lambda: n_disp > 1),
+            # Ventana sin bordes (frameless). Se aplica al cerrar el panel: el
+            # visualizador quita el marco in situ y estira la ventana hacia arriba
+            # para recuperar el alto de la title bar (en frameless Windows no deja
+            # redimensionar, asi que ese alto se compensa en vez de perderse). Sin
+            # title bar, la ventana se arrastra con clic-y-arrastre en cualquier
+            # parte. F11 (pantalla completa) manda por encima de este modo.
+            _Row("sin bordes", Toggle(lambda: view.frameless,
+                                      lambda v: setattr(view, "frameless", v))),
             # Filtros del extractor de color de la caratula. Se aplican al cerrar el
             # panel (re-extraen la paleta de la pista actual). El fallback por
             # defecto, apagado, hace que se pinten los colores crudos extraidos.
