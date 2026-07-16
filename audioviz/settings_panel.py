@@ -338,13 +338,6 @@ class SettingsPanel:
                                  lambda v: setattr(view, "show_hud", v))),
             _Row("atajos", Toggle(lambda: view.show_keybinds,
                                   lambda v: setattr(view, "show_keybinds", v))),
-            _Row("vista", Stepper(lambda: view.thumb_mode,
-                                  lambda v: setattr(view, "thumb_mode", v),
-                                  list(range(len(thumb_mode_labels))), thumb_mode_labels)),
-            _Row("tamano disco", Slider(lambda: view.vinyl_scale,
-                                        lambda v: setattr(view, "vinyl_scale", v),
-                                        0.3, 1.0, step=0.05, integer=False,
-                                        fmt=lambda v: f"{v:.2f}x")),
             _Row("pantalla", Stepper(lambda: view.fullscreen_display,
                                      lambda v: setattr(view, "fullscreen_display", v),
                                      list(range(n_disp)), disp_labels),
@@ -360,9 +353,21 @@ class SettingsPanel:
             # Ventana siempre encima (always-on-top). Tambien con la tecla T.
             _Row("siempre visible", Toggle(lambda: view.always_on_top,
                                            lambda v: setattr(view, "always_on_top", v))),
-            # Filtros del extractor de color de la caratula. Se aplican al cerrar el
-            # panel (re-extraen la paleta de la pista actual). El fallback por
-            # defecto, apagado, hace que se pinten los colores crudos extraidos.
+        ]
+
+        # --- pestana CARATULA: como se muestra la caratula y de que color tine ---
+        # La vista/tamano del disco y los filtros del extractor de color de la
+        # caratula. Los toggles de color se aplican al cerrar el panel (re-extraen
+        # la paleta de la pista actual); el fallback por defecto, apagado, hace que
+        # se pinten los colores crudos extraidos.
+        caratula = [
+            _Row("vista", Stepper(lambda: view.thumb_mode,
+                                  lambda v: setattr(view, "thumb_mode", v),
+                                  list(range(len(thumb_mode_labels))), thumb_mode_labels)),
+            _Row("tamano disco", Slider(lambda: view.vinyl_scale,
+                                        lambda v: setattr(view, "vinyl_scale", v),
+                                        0.3, 1.0, step=0.05, integer=False,
+                                        fmt=lambda v: f"{v:.2f}x")),
             _Row("color estricto", Toggle(lambda: view.palette_strict,
                                           lambda v: setattr(view, "palette_strict", v))),
             _Row("color permisivo", Toggle(lambda: view.palette_relaxed,
@@ -395,7 +400,7 @@ class SettingsPanel:
         # (label, filas) por pestana. Las dos fijas primero; luego una por cada
         # visualizacion que declare ajustes propios (settings()).
         self.tabs: list[tuple[str, list[_Row]]] = [
-            ("audio", audio), ("visual", visual), ("datos", data)]
+            ("audio", audio), ("visual", visual), ("caratula", caratula), ("datos", data)]
         for viz in visualizations:
             rows = [self._row_from_spec(spec) for spec in viz.settings()]
             if rows:
