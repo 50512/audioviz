@@ -185,7 +185,7 @@ class SettingsPanel:
     consume los eventos de mouse que caen sobre el (los clics fuera lo cierran).
     """
 
-    def __init__(self, engine, view, thumb_mode_labels):
+    def __init__(self, engine, view, thumb_mode_labels, visualizations=()):
         self.engine = engine
         self.view = view          # objeto con show_metadata, thumb_mode, max_bar_height
         self.open = False
@@ -247,6 +247,14 @@ class SettingsPanel:
                                      list(range(n_disp)), disp_labels),
                  visible=lambda: n_disp > 1),
         ]
+
+        # Un interruptor por visualizacion registrada. Leen/escriben el dict de
+        # activacion de la vista; el id se ata por argumento por defecto para que
+        # cada lambda capture el suyo (y no el ultimo del bucle).
+        for viz in visualizations:
+            self.rows.append(
+                _Row(viz.label, Toggle(lambda vid=viz.id: view.enabled_viz.get(vid, False),
+                                       lambda v, vid=viz.id: view.enabled_viz.__setitem__(vid, v))))
 
     def toggle(self) -> None:
         self.open = not self.open

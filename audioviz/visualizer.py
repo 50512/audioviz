@@ -35,6 +35,7 @@ from .engine import Engine
 from .metadata import MetadataMonitor
 from .settings_panel import SettingsPanel
 from .thumbnail import NO_ART, ThumbnailMonitor
+from .visualizations import RenderContext, build_visualizations
 
 BG = (14, 14, 18)
 GRID = (34, 34, 42)
@@ -115,18 +116,6 @@ def display_bounds(idx: int) -> tuple[int, int, int, int]:
         w, h = pygame.display.get_desktop_sizes()[0]
         return (0, 0, w, h)
     return bounds[max(0, min(idx, len(bounds) - 1))]
-
-
-def draw_channel(surf, band_h, rect, color, reverse=False):
-    """band_h: (n_bands,) en 0..1. rect: (x, y, w, h)."""
-    x, y, w, h = rect
-    n = len(band_h)
-    bw = w / n
-    bands = band_h[::-1] if reverse else band_h
-    for i, v in enumerate(bands):
-        bh = max(1, int(v * h))
-        bx = int(x + i * bw)
-        pygame.draw.rect(surf, color, (bx + 1, y + h - bh, int(bw) - 1, bh))
 
 
 class FallbackFont:
@@ -286,10 +275,13 @@ class ViewState:
     de dibujo: una unica fuente de verdad para que no se desincronicen."""
 
     def __init__(self, show_metadata: bool, thumb_mode: int, max_bar_height: float,
-                 fullscreen_display: int = 0):
+                 enabled_viz: dict[str, bool], fullscreen_display: int = 0):
         self.show_metadata = show_metadata
         self.thumb_mode = thumb_mode
         self.max_bar_height = max_bar_height
+        # Que visualizaciones estan activas, por id. El visualizador dibuja todas
+        # las activas (superpuestas); el panel de configuracion las alterna.
+        self.enabled_viz = enabled_viz
         # Indice del monitor al que se ancla la pantalla completa (F11).
         self.fullscreen_display = fullscreen_display
 
@@ -347,9 +339,15 @@ def main() -> None:
     THUMB_MODES = [(True, True), (True, False), (False, True), (False, False)]
     THUMB_MODE_LABELS = ["disco+car", "disco", "caratula", "nada"]
 
+    # Visualizaciones del espectro. Cada una se dibuja si esta activa; el estado
+    # de activacion vive en la vista y lo alterna el panel de configuracion.
+    visualizations = build_visualizations()
+    enabled_viz = {v.id: v.default_on for v in visualizations}
+
     view = ViewState(show_metadata=True, thumb_mode=0,
-                     max_bar_height=args.max_bar_height, fullscreen_display=0)
-    panel = SettingsPanel(engine, view, THUMB_MODE_LABELS)
+                     max_bar_height=args.max_bar_height, enabled_viz=enabled_viz,
+                     fullscreen_display=0)
+    panel = SettingsPanel(engine, view, THUMB_MODE_LABELS, visualizations)
     # Cache: el hilo del socket solo entrega bytes crudos; decodificar a
     # Surface y convert_alpha() necesita el contexto de video, asi que se
     # hace aca, en el hilo principal, y solo cuando cambian los bytes.
@@ -462,40 +460,14 @@ def main() -> None:
             header_h = META_BAR_H
 
         if frame is not None:
-            heights = frame.normalized()           # (channels, n_bands) en 0..1
+            ctx = RenderContext(width=w, height=h, header_h=header_h,
+                                max_height_frac=view.max_bar_height / 100.0,
+                                colors=CH_COLORS, grid_color=GRID)
+            for viz in visualizations:
+                if view.enabled_viz.get(viz.id):
+                    viz.draw(screen, frame, ctx)
+
             ch = frame.channels
-            pad, top, gap = 16, 56 + header_h, 12
-            max_plot_h = h * view.max_bar_height / 100.0
-
-            if ch == 2:
-                # Stereo: canales lado a lado.
-                # Canal izquierdo: graves en borde izquierdo, agudos hacia el centro.
-                # Canal derecho: agudos hacia el centro, graves en borde derecho (invertido).
-                plot_h = h - top - pad
-                bar_h = min(plot_h, max_plot_h)
-                half = w // 2
-                y = top
-                bottom = y + plot_h
-
-                left_w = half - pad - gap // 2
-                pygame.draw.line(screen, GRID, (pad, bottom), (pad + left_w, bottom))
-                draw_channel(screen, heights[0], (pad, bottom - bar_h, left_w, bar_h), CH_COLORS[0])
-
-                right_x = half + gap // 2
-                right_w = w - pad - right_x
-                pygame.draw.line(screen, GRID, (right_x, bottom), (right_x + right_w, bottom))
-                draw_channel(screen, heights[1], (right_x, bottom - bar_h, right_w, bar_h), CH_COLORS[1],
-                             reverse=True)
-            else:
-                plot_h = (h - top - pad - gap * (ch - 1)) / ch
-                bar_h = min(plot_h, max_plot_h)
-                for c in range(ch):
-                    y = top + c * (plot_h + gap)
-                    bottom = y + plot_h
-                    pygame.draw.line(screen, GRID, (pad, bottom), (w - pad, bottom))
-                    draw_channel(screen, heights[c], (pad, bottom - bar_h, w - 2 * pad, bar_h),
-                                 CH_COLORS[c % len(CH_COLORS)])
-
             hud = (f"{engine.source_name}  |  {frame.sample_rate} Hz  {ch}ch  "
                    f"|  {engine.distribution} {engine.n_bands}b  "
                    f"|  attack {engine.attack_ms:.0f}ms  decay {engine.decay_ms:.0f}ms  "
