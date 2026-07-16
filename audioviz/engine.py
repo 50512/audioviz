@@ -52,6 +52,21 @@ def make_source(name: str, **kw) -> AudioSource:
     raise ValueError(f"fuente desconocida: {name!r}")
 
 
+# Orden de fallback entre fuentes. Si la pedida no arranca (dispositivo
+# inaccesible, endpoint en modo exclusivo, puerto ocupado...), se prueba la
+# siguiente, y asi hasta 'tone': el fallback definitivo, siempre disponible
+# (es sintetico, no depende de hardware ni de la red).
+SOURCE_ORDER = ["loopback", "fb2k", "mic", "tone"]
+
+
+def _fallback_chain(name: str) -> list[str]:
+    """La fuente pedida seguida de las que quedan en SOURCE_ORDER, hasta 'tone'.
+    Una fuente fuera de la lista se prueba sola y luego cae a 'tone'."""
+    if name in SOURCE_ORDER:
+        return SOURCE_ORDER[SOURCE_ORDER.index(name):]
+    return [name, "tone"]
+
+
 class Engine:
     def __init__(self, source: str = "loopback", fps: float = 60.0,
                  attack_ms: float = 20.0, decay_ms: float = 300.0,
@@ -82,6 +97,12 @@ class Engine:
         self._source: AudioSource | None = None
         self._source_name = ""
         self._last: VizFrame | None = None
+
+        # Callback opcional (requested, actual) que dispara set_source cuando cae
+        # a una fuente distinta de la pedida. Lo usa la GUI para avisar al usuario
+        # (parpadeo rojo). En __init__ aun es None: el arranque no lo notifica,
+        # pero el llamador puede comparar source_name con lo que pidio.
+        self.on_fallback = None
 
         self.set_source(source)
 
@@ -195,13 +216,41 @@ class Engine:
         return self._source_name
 
     def set_source(self, name: str, **kw) -> None:
-        if self._source is not None:
-            self._source.stop()
-        self._source = make_source(name, **kw)
-        self._source.start()
-        self._source_name = name
-        self._smoother.reset()   # el estado anterior no aplica a la fuente nueva
-        self._last = None
+        """Cambia de fuente en caliente. Si la pedida no arranca, cae a la
+        siguiente de SOURCE_ORDER, y asi hasta 'tone' (fallback definitivo). Si
+        el ultimo eslabon tambien falla, la excepcion se propaga: ya no hay red.
+
+        La fuente anterior no se suelta hasta que UNA nueva arranca de verdad, asi
+        un cambio que falla por completo no corta el audio que ya estaba sonando.
+        Los kw solo se pasan a la fuente PEDIDA; los fallbacks arrancan por defecto
+        (sus parametros pueden no aplicar a otra fuente)."""
+        chain = _fallback_chain(name)
+        for i, candidate in enumerate(chain):
+            src = None
+            try:
+                src = make_source(candidate, **(kw if candidate == name else {}))
+                src.start()
+            except Exception:
+                # Arranque a medias: limpiamos lo que haya quedado (p.ej. loopback
+                # deja PyAudio() vivo si open() falla) y probamos la siguiente.
+                if src is not None:
+                    try:
+                        src.stop()
+                    except Exception:
+                        pass
+                if i == len(chain) - 1:
+                    raise   # ultimo eslabon: sin fallback, que crashee
+                continue
+
+            if self._source is not None:
+                self._source.stop()
+            self._source = src
+            self._source_name = candidate
+            self._smoother.reset()   # el estado anterior no aplica a la fuente nueva
+            self._last = None
+            if candidate != name and self.on_fallback is not None:
+                self.on_fallback(name, candidate)
+            return
 
     # --- lo unico que la GUI llama en su bucle -------------------------------
 

@@ -49,6 +49,11 @@ BG = (14, 14, 18)
 GRID = (34, 34, 42)
 CH_COLORS = [(90, 200, 250), (250, 130, 110), (150, 230, 140), (240, 200, 90)]
 TEXT = (150, 150, 165)
+# Aviso de fallback de fuente: el nombre de la fuente en el HUD parpadea en rojo
+# unos segundos cuando el motor cayo a una fuente distinta de la pedida (la
+# original estaba inaccesible o inservible).
+SOURCE_FLASH_COLOR = (235, 70, 70)
+SOURCE_FLASH_SECS = 3.0
 META_BG = (24, 24, 30)
 META_TEXT = (225, 225, 232)
 META_TEXT_PAUSED = (140, 140, 150)
@@ -519,6 +524,21 @@ def main() -> None:
                     note_hi=eff["note_hi"], bands_per_octave=eff["bands_per_octave"],
                     tuning=eff["tuning"])
 
+    # Parpadeo rojo del nombre de la fuente cuando el motor cae a un fallback.
+    # arm_source_flash marca hasta cuando dura el aviso; on_fallback lo dispara
+    # en los cambios en caliente (atajo/panel). El arranque no pasa por el
+    # callback (aun no existia), asi que lo detectamos comparando lo pedido con
+    # lo que quedo activo.
+    source_flash_until = 0.0
+
+    def arm_source_flash(*_):
+        nonlocal source_flash_until
+        source_flash_until = pygame.time.get_ticks() / 1000.0 + SOURCE_FLASH_SECS
+
+    engine.on_fallback = arm_source_flash
+    if engine.source_name != eff["source"]:
+        arm_source_flash()
+
     # La metadata y la caratula viajan por sus propios WebSocket, ajenos al motor
     # de audio: si el servicio no esta arriba el hilo reintenta en el fondo y
     # read() devuelve None, sin afectar en nada al resto del visualizador. Ambos
@@ -846,12 +866,14 @@ def main() -> None:
                     viz.draw(screen, frame, ctx)
 
             ch = frame.channels
-            hud = (f"{engine.source_name}  |  {frame.sample_rate} Hz  {ch}ch  "
-                   f"|  {engine.distribution} {engine.n_bands}b  "
-                   f"|  attack {engine.attack_ms:.0f}ms  decay {engine.decay_ms:.0f}ms  "
-                   f"|  {clock.get_fps():.0f} fps")
+            # El nombre de la fuente se dibuja aparte (puede parpadear en rojo),
+            # asi que el resto del HUD arranca despues de el.
+            hud_rest = (f"  |  {frame.sample_rate} Hz  {ch}ch  "
+                        f"|  {engine.distribution} {engine.n_bands}b  "
+                        f"|  attack {engine.attack_ms:.0f}ms  decay {engine.decay_ms:.0f}ms  "
+                        f"|  {clock.get_fps():.0f} fps")
         else:
-            hud = f"{engine.source_name}  |  esperando audio…"
+            hud_rest = "  |  esperando audio…"
 
         # Decodificamos la caratula SIEMPRE que cambien los bytes (aunque el arte
         # no se muestre): asi thumb_surface no queda viejo y la paleta de color
@@ -902,7 +924,16 @@ def main() -> None:
                     art_panel_for = box
                 screen.blit(art_panel, art_panel.get_rect(center=center))
 
-        screen.blit(font.render(hud, True, TEXT), (16, header_h + 16))
+        # Nombre de la fuente + resto del HUD. Durante el aviso de fallback el
+        # nombre alterna rojo/normal ~3 veces por segundo (parpadeo).
+        now_s = pygame.time.get_ticks() / 1000.0
+        src_color = TEXT
+        if now_s < source_flash_until and int(now_s * 6) % 2 == 0:
+            src_color = SOURCE_FLASH_COLOR
+        name_surf = font.render(engine.source_name, True, src_color)
+        rest_surf = font.render(hud_rest, True, TEXT)
+        screen.blit(name_surf, (16, header_h + 16))
+        screen.blit(rest_surf, (16 + name_surf.get_width(), header_h + 16))
         screen.blit(font.render("1/2/3/4 fuente   Q/A attack   W/S decay   M metadata   C vista   T on-top   F11 pantalla completa   TAB config   ESC salir",
                                 True, GRID), (16, header_h + 34))
         panel.draw(screen)   # modal encima de todo, si esta abierto
