@@ -7,6 +7,8 @@ WASAPI, FFT ni ventanas de Hann. Solo pide frames y dibuja.
 
 Teclas:
     1 / 2 / 3 / 4   fuente: loopback / fb2k / mic / tone   (hot-swap, sin reiniciar)
+                    fb2k (tecla 2) es de nicho y esta oculta por defecto: hay que
+                    habilitarla en el panel (TAB) o con --enable-fb2k
     Q / A       attack  -/+
     W / S       decay   -/+
     M           metadata (now playing) on/off
@@ -945,7 +947,10 @@ def main() -> None:
         rest_surf = font.render(hud_rest, True, TEXT)
         screen.blit(name_surf, (16, header_h + 16))
         screen.blit(rest_surf, (16 + name_surf.get_width(), header_h + 16))
-        screen.blit(font.render("1/2/3/4 fuente   Q/A attack   W/S decay   M metadata   C vista   T on-top   F11 pantalla completa   TAB config   ESC salir",
+        # Teclas de fuente en el hint: 1/2/3/4 con fb2k habilitada (2=fb2k), o
+        # 1/3/4 sin ella (su tecla queda inerte, no la anunciamos).
+        src_keys = "1/2/3/4" if engine.fb2k_enabled else "1/3/4"
+        screen.blit(font.render(f"{src_keys} fuente   Q/A attack   W/S decay   M metadata   C vista   T on-top   F11 pantalla completa   TAB config   ESC salir",
                                 True, GRID), (16, header_h + 34))
         panel.draw(screen)   # modal encima de todo, si esta abierto
         pygame.display.flip()
