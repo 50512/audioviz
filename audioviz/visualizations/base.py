@@ -8,6 +8,19 @@ ellas y dibuja las que esten activas, en orden, una encima de otra.
 Para anadir una visualizacion nueva: subclase de Visualization con un `id` y una
 `label` unicos, implementa draw(), y registrala en __init__.py. El panel de
 configuracion genera su interruptor solo.
+
+OJO con la forma de los datos: el modo de analisis (log u octaves) lo decide el
+Engine, es global, y TODAS las visualizaciones reciben el frame en ese modo (no
+lo eligen ellas). El contrato de draw() no cambia entre modos, pero SI cambia la
+forma del frame:
+
+    - el numero de bandas varia (log: el que pidas; octaves: lo dicta el rango
+      de notas) y puede cambiar en caliente de un cuadro al siguiente, porque el
+      panel reconfigura el analisis en vivo;
+    - frame.centers (Hz por banda) cambia de espaciado con el modo.
+
+Por eso NO caches el conteo de bandas: lee len(frame.normalized()[c]) cada
+cuadro. Asumir un numero fijo rompe al cambiar de modo o de nº de bandas.
 """
 
 from __future__ import annotations
