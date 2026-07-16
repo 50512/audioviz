@@ -11,6 +11,7 @@ Teclas:
     W / S       decay   -/+
     M           metadata (now playing) on/off
     C           vista: caratula+disco / disco / caratula / nada
+    T           ventana siempre encima (always-on-top) on/off
     F11         pantalla completa on/off
     TAB         panel de configuracion (mouse) on/off
     ESC         salir (o cerrar el panel si esta abierto)
@@ -385,7 +386,7 @@ class ViewState:
                  circle_symmetric: bool = False, host: str = "",
                  fullscreen_display: int = 0, palette_strict: bool = True,
                  palette_relaxed: bool = True, palette_default_fallback: bool = True,
-                 frameless: bool = False):
+                 frameless: bool = False, always_on_top: bool = False):
         self.show_metadata = show_metadata
         self.thumb_mode = thumb_mode
         # Tope de altura de las barras verticales, como % del alto de la pantalla.
@@ -435,6 +436,9 @@ class ViewState:
         # alto se compensa). Sin title bar la ventana se arrastra a mano. F11
         # (pantalla completa) es un estado aparte que manda sobre este.
         self.frameless = frameless
+        # Ventana siempre encima del resto (always-on-top). Independiente del
+        # marco y de la pantalla completa; se reasigna tras recrear la ventana.
+        self.always_on_top = always_on_top
 
 
 def main() -> None:
@@ -557,7 +561,8 @@ def main() -> None:
                      palette_strict=bool(eff["palette_strict"]),
                      palette_relaxed=bool(eff["palette_relaxed"]),
                      palette_default_fallback=bool(eff["palette_default_fallback"]),
-                     frameless=bool(eff["frameless"]))
+                     frameless=bool(eff["frameless"]),
+                     always_on_top=bool(eff["always_on_top"]))
     def persist_config() -> None:
         """Vuelca el estado vivo al archivo (salvo --no-config). Best-effort:
         config.save degrada en silencio si no puede escribir. Lo usan el cierre
@@ -643,6 +648,12 @@ def main() -> None:
             win.borderless = False
             frameless_applied = False
 
+    def sync_on_top() -> None:
+        # Aplica la preferencia always-on-top a la ventana actual. Idempotente y
+        # sin efectos de geometria, asi que se puede llamar sin llevar la cuenta:
+        # al togglear, al cerrar el panel y tras recrear la ventana (F11).
+        win.always_on_top = view.always_on_top
+
     def enter_fullscreen(idx: int):
         # Ventana sin bordes (NOFRAME) del tamano del monitor elegido, MOVIDA a su
         # esquina real. Reusar la ventana hace que set_mode(display=idx) se ignore
@@ -658,6 +669,7 @@ def main() -> None:
     # pantalla completa, asi que se aplica directo sobre la ventana con bordes).
     if view.frameless:
         set_frameless(True)
+    sync_on_top()   # restaura la preferencia always-on-top guardada
 
     while running:
         # El guardado se dispara al CERRAR el panel: recordamos si estaba abierto
@@ -695,6 +707,7 @@ def main() -> None:
                     dragging = False
                     screen, applied_display = enter_fullscreen(view.fullscreen_display)
                     win = _display_window()   # set_mode pudo recrear la ventana
+                    sync_on_top()
                 else:
                     # Volvemos a ventana redimensionable y la centramos en el
                     # monitor donde estaba la pantalla completa; si no, se queda en
@@ -708,6 +721,7 @@ def main() -> None:
                     # Re-aplica la preferencia frameless sobre la ventana restaurada.
                     if view.frameless:
                         set_frameless(True)
+                    sync_on_top()
                 continue
             if panel.handle(ev, screen.get_size()):
                 continue
@@ -753,6 +767,10 @@ def main() -> None:
                     view.show_metadata = not view.show_metadata
                 elif ev.key == pygame.K_c:
                     view.thumb_mode = (view.thumb_mode + 1) % len(THUMB_MODES)
+                elif ev.key == pygame.K_t:
+                    view.always_on_top = not view.always_on_top
+                    sync_on_top()
+                    persist_config()   # guarda al instante (atajo fuera del panel)
 
         # El panel se acaba de cerrar: aplicamos cambios de host (reconstruyendo
         # los monitores en caliente) y persistimos el estado (salvo --no-config).
@@ -778,6 +796,7 @@ def main() -> None:
             # pantalla completa (ahi se aplicara al salir de ella, con F11).
             if not fullscreen and view.frameless != frameless_applied:
                 set_frameless(view.frameless)
+            sync_on_top()   # el panel pudo togglear always-on-top
             persist_config()
 
         # Si el panel cambio el monitor de destino mientras estamos en pantalla
@@ -786,6 +805,7 @@ def main() -> None:
         if fullscreen and view.fullscreen_display != applied_display:
             screen, applied_display = enter_fullscreen(view.fullscreen_display)
             win = _display_window()
+            sync_on_top()
 
         frame = engine.poll()          # <- lo unico que la GUI le pide al motor
         screen.fill(BG)
@@ -883,7 +903,7 @@ def main() -> None:
                 screen.blit(art_panel, art_panel.get_rect(center=center))
 
         screen.blit(font.render(hud, True, TEXT), (16, header_h + 16))
-        screen.blit(font.render("1/2/3/4 fuente   Q/A attack   W/S decay   M metadata   C vista   F11 pantalla completa   TAB config   ESC salir",
+        screen.blit(font.render("1/2/3/4 fuente   Q/A attack   W/S decay   M metadata   C vista   T on-top   F11 pantalla completa   TAB config   ESC salir",
                                 True, GRID), (16, header_h + 34))
         panel.draw(screen)   # modal encima de todo, si esta abierto
         pygame.display.flip()

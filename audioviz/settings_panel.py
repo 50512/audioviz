@@ -326,6 +326,9 @@ class SettingsPanel:
             # parte. F11 (pantalla completa) manda por encima de este modo.
             _Row("sin bordes", Toggle(lambda: view.frameless,
                                       lambda v: setattr(view, "frameless", v))),
+            # Ventana siempre encima (always-on-top). Tambien con la tecla T.
+            _Row("siempre visible", Toggle(lambda: view.always_on_top,
+                                           lambda v: setattr(view, "always_on_top", v))),
             # Filtros del extractor de color de la caratula. Se aplican al cerrar el
             # panel (re-extraen la paleta de la pista actual). El fallback por
             # defecto, apagado, hace que se pinten los colores crudos extraidos.
