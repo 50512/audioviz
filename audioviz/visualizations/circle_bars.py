@@ -49,6 +49,7 @@ class CircleBarsVisualization(Visualization):
             StepperSetting("degradado", "circle_gradient_mode",
                            GRADIENT_MODES, GRADIENT_LABELS),
             ToggleSetting("caratula", "circle_use_cover"),
+            ToggleSetting("simetrico", "circle_symmetric"),
         ]
 
     def _gradient(self, n, stops, mode):
@@ -82,6 +83,7 @@ class CircleBarsVisualization(Visualization):
         grad = self._gradient(n, stops, mode)
         slot = 2.0 * math.pi / n
         half = slot * 0.5 * FILL                 # semiancho angular de cada barra
+        symmetric = ctx.circle_symmetric
 
         for i in range(n):
             # float() nativo a proposito: pygame.draw.polygon rechaza escalares
@@ -98,4 +100,13 @@ class CircleBarsVisualization(Visualization):
                 (cx + r_out * cos1, cy + r_out * sin1),
                 (cx + inner * cos1, cy + inner * sin1),
             )
-            pygame.draw.polygon(surf, grad[i], pts)
+            if symmetric:
+                # Color por posicion horizontal (no por banda): derecha = primer
+                # color, izquierda = ultimo, arriba/abajo = el medio. Es simetrico
+                # respecto al eje vertical, asi que cierra sin costura (arriba y
+                # abajo coinciden por ambos lados). t=0 derecha .. t=1 izquierda.
+                t = (1.0 - math.cos(a)) * 0.5
+                color = grad[int(t * (n - 1))]
+            else:
+                color = grad[i]                  # lineal por banda (con costura arriba)
+            pygame.draw.polygon(surf, color, pts)

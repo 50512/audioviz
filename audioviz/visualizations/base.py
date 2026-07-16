@@ -86,6 +86,7 @@ class RenderContext:
     circle_radius_mult: float                   # multiplicador del radio interior del circulo de barras
     circle_max_height_frac: float               # tope de largo de las barras del circulo, fraccion 0..1
     circle_gradient_mode: str                   # modo de degradado del circulo (rgb/warm/cool/oklch)
+    circle_symmetric: bool                      # circulo: color por posicion (simetrico, sin costura)
     cover_palette: "list[tuple[int, int, int]] | None"  # 1..3 colores de la caratula (o None)
     bars_use_cover: bool                        # las barras usan la paleta de la caratula
     circle_use_cover: bool                      # el circulo usa la paleta de la caratula

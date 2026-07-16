@@ -290,7 +290,7 @@ class ViewState:
                  vinyl_scale: float = 1.0, bars_gradient_mode: str = "solid",
                  bars_gradient_scope: str = "channel", bars_use_cover: bool = False,
                  circle_use_cover: bool = False, bars_cover_2col: str = "gradient",
-                 fullscreen_display: int = 0):
+                 circle_symmetric: bool = False, fullscreen_display: int = 0):
         self.show_metadata = show_metadata
         self.thumb_mode = thumb_mode
         # Tope de altura de las barras verticales, como % del alto de la pantalla.
@@ -320,6 +320,8 @@ class ViewState:
         self.circle_use_cover = circle_use_cover
         # Caratula con 2 colores en barras: mezclarlos (gradient) o uno por canal (split).
         self.bars_cover_2col = bars_cover_2col
+        # Circulo: color por posicion (simetrico, sin costura) en vez de por banda.
+        self.circle_symmetric = circle_symmetric
         # Indice del monitor al que se ancla la pantalla completa (F11).
         self.fullscreen_display = fullscreen_display
 
@@ -442,6 +444,7 @@ def main() -> None:
                      bars_use_cover=bool(eff["bars_use_cover"]),
                      circle_use_cover=bool(eff["circle_use_cover"]),
                      bars_cover_2col=eff["bars_cover_2col"],
+                     circle_symmetric=bool(eff["circle_symmetric"]),
                      fullscreen_display=int(eff["fullscreen_display"]))
     panel = SettingsPanel(engine, view, THUMB_MODE_LABELS, visualizations)
     # Cache: el hilo del socket solo entrega bytes crudos; decodificar a
@@ -578,6 +581,7 @@ def main() -> None:
                                 circle_radius_mult=view.circle_radius_mult,
                                 circle_max_height_frac=view.circle_max_height / 100.0,
                                 circle_gradient_mode=view.circle_gradient_mode,
+                                circle_symmetric=view.circle_symmetric,
                                 cover_palette=cover_palette,
                                 bars_use_cover=view.bars_use_cover,
                                 circle_use_cover=view.circle_use_cover,
