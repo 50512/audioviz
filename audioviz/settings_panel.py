@@ -331,6 +331,13 @@ class SettingsPanel:
                                    placeholder="ip del host")),
             _Row("metadata", Toggle(lambda: view.show_metadata,
                                     lambda v: setattr(view, "show_metadata", v))),
+            # Interruptores maestros de los overlays de texto de la esquina. El
+            # detalle de que valores muestra el HUD de datos vive en su propia
+            # pestana ("datos"); aca solo se prende/apaga toda la linea.
+            _Row("datos", Toggle(lambda: view.show_hud,
+                                 lambda v: setattr(view, "show_hud", v))),
+            _Row("atajos", Toggle(lambda: view.show_keybinds,
+                                  lambda v: setattr(view, "show_keybinds", v))),
             _Row("vista", Stepper(lambda: view.thumb_mode,
                                   lambda v: setattr(view, "thumb_mode", v),
                                   list(range(len(thumb_mode_labels))), thumb_mode_labels)),
@@ -363,6 +370,21 @@ class SettingsPanel:
             _Row("color fallback", Toggle(lambda: view.palette_default_fallback,
                                           lambda v: setattr(view, "palette_default_fallback", v))),
         ]
+        # --- pestana DATOS: que valores muestra el HUD de la esquina -----------
+        # El interruptor maestro (mostrar/ocultar toda la linea) vive en "visual";
+        # aca se elige, valor por valor, que aparece cuando el HUD esta activo.
+        def _hud(attr):
+            return Toggle(lambda a=attr: getattr(view, a),
+                          lambda v, a=attr: setattr(view, a, v))
+        data = [
+            _Row("fuente", _hud("hud_source")),
+            _Row("frecuencia", _hud("hud_rate")),
+            _Row("canales", _hud("hud_channels")),
+            _Row("analisis", _hud("hud_analysis")),
+            _Row("ataque/caida", _hud("hud_ballistics")),
+            _Row("fps", _hud("hud_fps")),
+        ]
+
         # Un interruptor por visualizacion registrada. El id se ata por argumento
         # por defecto para que cada lambda capture el suyo (no el ultimo del bucle).
         for viz in visualizations:
@@ -372,7 +394,8 @@ class SettingsPanel:
 
         # (label, filas) por pestana. Las dos fijas primero; luego una por cada
         # visualizacion que declare ajustes propios (settings()).
-        self.tabs: list[tuple[str, list[_Row]]] = [("audio", audio), ("visual", visual)]
+        self.tabs: list[tuple[str, list[_Row]]] = [
+            ("audio", audio), ("visual", visual), ("datos", data)]
         for viz in visualizations:
             rows = [self._row_from_spec(spec) for spec in viz.settings()]
             if rows:

@@ -393,7 +393,11 @@ class ViewState:
                  circle_symmetric: bool = False, host: str = "",
                  fullscreen_display: int = 0, palette_strict: bool = True,
                  palette_relaxed: bool = True, palette_default_fallback: bool = True,
-                 frameless: bool = False, always_on_top: bool = False):
+                 frameless: bool = False, always_on_top: bool = False,
+                 show_hud: bool = True, show_keybinds: bool = True,
+                 hud_source: bool = True, hud_rate: bool = True,
+                 hud_channels: bool = True, hud_analysis: bool = True,
+                 hud_ballistics: bool = True, hud_fps: bool = True):
         self.show_metadata = show_metadata
         self.thumb_mode = thumb_mode
         # Tope de altura de las barras verticales, como % del alto de la pantalla.
@@ -446,6 +450,18 @@ class ViewState:
         # Ventana siempre encima del resto (always-on-top). Independiente del
         # marco y de la pantalla completa; se reasigna tras recrear la ventana.
         self.always_on_top = always_on_top
+        # HUD de datos (esquina sup. izq.): show_hud es el interruptor maestro de
+        # toda la linea (fuente + Hz/canales/analisis/ballistics/fps) y cada
+        # hud_* alterna un valor concreto dentro de ella. show_keybinds controla,
+        # aparte, la linea de ayuda con los atajos de teclado.
+        self.show_hud = show_hud
+        self.show_keybinds = show_keybinds
+        self.hud_source = hud_source
+        self.hud_rate = hud_rate
+        self.hud_channels = hud_channels
+        self.hud_analysis = hud_analysis
+        self.hud_ballistics = hud_ballistics
+        self.hud_fps = hud_fps
 
 
 def main() -> None:
@@ -588,7 +604,15 @@ def main() -> None:
                      palette_relaxed=bool(eff["palette_relaxed"]),
                      palette_default_fallback=bool(eff["palette_default_fallback"]),
                      frameless=bool(eff["frameless"]),
-                     always_on_top=bool(eff["always_on_top"]))
+                     always_on_top=bool(eff["always_on_top"]),
+                     show_hud=bool(eff["show_hud"]),
+                     show_keybinds=bool(eff["show_keybinds"]),
+                     hud_source=bool(eff["hud_source"]),
+                     hud_rate=bool(eff["hud_rate"]),
+                     hud_channels=bool(eff["hud_channels"]),
+                     hud_analysis=bool(eff["hud_analysis"]),
+                     hud_ballistics=bool(eff["hud_ballistics"]),
+                     hud_fps=bool(eff["hud_fps"]))
     def persist_config() -> None:
         """Vuelca el estado vivo al archivo (salvo --no-config). Best-effort:
         config.save degrada en silencio si no puede escribir. Lo usan el cierre
@@ -878,16 +902,6 @@ def main() -> None:
                 if view.enabled_viz.get(viz.id):
                     viz.draw(screen, frame, ctx)
 
-            ch = frame.channels
-            # El nombre de la fuente se dibuja aparte (puede parpadear en rojo),
-            # asi que el resto del HUD arranca despues de el.
-            hud_rest = (f"  |  {frame.sample_rate} Hz  {ch}ch  "
-                        f"|  {engine.distribution} {engine.n_bands}b  "
-                        f"|  attack {engine.attack_ms:.0f}ms  decay {engine.decay_ms:.0f}ms  "
-                        f"|  {clock.get_fps():.0f} fps")
-        else:
-            hud_rest = "  |  esperando audio…"
-
         # Decodificamos la caratula SIEMPRE que cambien los bytes (aunque el arte
         # no se muestre): asi thumb_surface no queda viejo y la paleta de color
         # esta lista para las visualizaciones que la usen, este el disco visible
@@ -937,21 +951,47 @@ def main() -> None:
                     art_panel_for = box
                 screen.blit(art_panel, art_panel.get_rect(center=center))
 
-        # Nombre de la fuente + resto del HUD. Durante el aviso de fallback el
-        # nombre alterna rojo/normal ~3 veces por segundo (parpadeo).
-        now_s = pygame.time.get_ticks() / 1000.0
-        src_color = TEXT
-        if now_s < source_flash_until and int(now_s * 6) % 2 == 0:
-            src_color = SOURCE_FLASH_COLOR
-        name_surf = font.render(engine.source_name, True, src_color)
-        rest_surf = font.render(hud_rest, True, TEXT)
-        screen.blit(name_surf, (16, header_h + 16))
-        screen.blit(rest_surf, (16 + name_surf.get_width(), header_h + 16))
-        # Teclas de fuente en el hint: 1/2/3/4 con fb2k habilitada (2=fb2k), o
-        # 1/3/4 sin ella (su tecla queda inerte, no la anunciamos).
-        src_keys = "1/2/3/4" if engine.fb2k_enabled else "1/3/4"
-        screen.blit(font.render(f"{src_keys} fuente   Q/A attack   W/S decay   M metadata   C vista   T on-top   F11 pantalla completa   TAB config   ESC salir",
-                                True, GRID), (16, header_h + 34))
+        # HUD de datos (esquina sup. izq.) y linea de ayuda con atajos. Ambos son
+        # desactivables desde el panel (tabs "visual" y "datos"). Un cursor
+        # vertical apila lo que este activo, asi la ayuda sube si el HUD esta oculto.
+        hud_y = header_h + 16
+        if view.show_hud:
+            # El nombre de la fuente se dibuja aparte (puede parpadear en rojo
+            # durante el aviso de fallback, ~3 veces por segundo) y el resto arranca
+            # despues de el. Cada valor se incluye solo si su toggle esta activo.
+            now_s = pygame.time.get_ticks() / 1000.0
+            src_color = TEXT
+            if now_s < source_flash_until and int(now_s * 6) % 2 == 0:
+                src_color = SOURCE_FLASH_COLOR
+            x = 16
+            if view.hud_source:
+                name_surf = font.render(engine.source_name, True, src_color)
+                screen.blit(name_surf, (x, hud_y))
+                x += name_surf.get_width()
+            if frame is not None:
+                parts = []
+                if view.hud_rate:
+                    parts.append(f"{frame.sample_rate} Hz")
+                if view.hud_channels:
+                    parts.append(f"{frame.channels}ch")
+                if view.hud_analysis:
+                    parts.append(f"{engine.distribution} {engine.n_bands}b")
+                if view.hud_ballistics:
+                    parts.append(f"attack {engine.attack_ms:.0f}ms  decay {engine.decay_ms:.0f}ms")
+                if view.hud_fps:
+                    parts.append(f"{clock.get_fps():.0f} fps")
+                rest = "".join(f"  |  {p}" for p in parts)
+            else:
+                rest = "  |  esperando audio…"
+            if rest:
+                screen.blit(font.render(rest, True, TEXT), (x, hud_y))
+            hud_y += 18
+        if view.show_keybinds:
+            # Teclas de fuente en el hint: 1/2/3/4 con fb2k habilitada (2=fb2k), o
+            # 1/3/4 sin ella (su tecla queda inerte, no la anunciamos).
+            src_keys = "1/2/3/4" if engine.fb2k_enabled else "1/3/4"
+            screen.blit(font.render(f"{src_keys} fuente   Q/A attack   W/S decay   M metadata   C vista   T on-top   F11 pantalla completa   TAB config   ESC salir",
+                                    True, GRID), (16, hud_y))
         panel.draw(screen)   # modal encima de todo, si esta abierto
         pygame.display.flip()
 
