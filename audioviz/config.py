@@ -19,7 +19,7 @@ import os
 
 from .visualizations.bars import (DEFAULT_BARS_COVER_2, DEFAULT_BARS_GRADIENT,
                                   DEFAULT_BARS_SCOPE)
-from .visualizations.circle_bars import DEFAULT_RADIUS_MULT
+from .visualizations.circle_bars import DEFAULT_CENTER, DEFAULT_RADIUS_MULT
 from .visualizations.gradient import DEFAULT_GRADIENT
 
 APP_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "audioviz")
@@ -68,6 +68,9 @@ DEFAULTS: dict = {
     "max_bar_height": 100.0,
     "circle_radius_mult": DEFAULT_RADIUS_MULT,
     "circle_max_height": 100.0,
+    # Altura del centro del conjunto disco+caratula+circulo, como % del alto de la
+    # ventana (0 = abajo, 100 = arriba, 50 = mitad, el default de siempre).
+    "circle_center": DEFAULT_CENTER,
     "circle_gradient_mode": DEFAULT_GRADIENT,
     "vinyl_scale": 1.0,
     "bars_gradient_mode": DEFAULT_BARS_GRADIENT,
@@ -162,6 +165,7 @@ def snapshot(view, engine) -> dict:
         "max_bar_height": view.max_bar_height,
         "circle_radius_mult": view.circle_radius_mult,
         "circle_max_height": view.circle_max_height,
+        "circle_center": view.circle_center,
         "circle_gradient_mode": view.circle_gradient_mode,
         "vinyl_scale": view.vinyl_scale,
         "bars_gradient_mode": view.bars_gradient_mode,

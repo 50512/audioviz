@@ -386,7 +386,8 @@ class ViewState:
 
     def __init__(self, show_metadata: bool, thumb_mode: int, max_bar_height: float,
                  enabled_viz: dict[str, bool], circle_radius_mult: float = 1.1,
-                 circle_max_height: float = 100.0, circle_gradient_mode: str = "rgb",
+                 circle_max_height: float = 100.0, circle_center: float = 50.0,
+                 circle_gradient_mode: str = "rgb",
                  vinyl_scale: float = 1.0, bars_gradient_mode: str = "solid",
                  bars_gradient_scope: str = "channel", bars_use_cover: bool = False,
                  circle_use_cover: bool = False, bars_cover_2col: str = "gradient",
@@ -412,6 +413,10 @@ class ViewState:
         # Independiente de max_bar_height: el circulo tiene menos recorrido radial
         # y compartir el limite le recortaria demasiado el rango de movimiento.
         self.circle_max_height = circle_max_height
+        # Altura del centro del conjunto disco+caratula+circulo de barras, como % del
+        # alto de la ventana (0 = abajo, 100 = arriba, 50 = mitad). Mueve a los tres
+        # en bloque; el vinilo, la caratula y el anillo comparten centro.
+        self.circle_center = circle_center
         # Modo de degradado del circulo (rgb/warm/cool/oklab). Ajustable en vivo.
         self.circle_gradient_mode = circle_gradient_mode
         # Multiplicador del tamano del vinilo. Cascada: reduce el vinilo, la
@@ -492,6 +497,9 @@ def main() -> None:
     ap.add_argument("--circle-max-height", dest="circle_max_height", type=float, default=S,
                      help="largo maximo de las barras del circulo, como %% del espacio "
                           "disponible hasta el borde (0-100)")
+    ap.add_argument("--circle-center", dest="circle_center", type=float, default=S,
+                     help="altura del centro del disco+caratula+circulo, como %% del "
+                          "alto de la ventana (0 = abajo, 100 = arriba, 50 = mitad)")
     ap.add_argument("--circle-gradient", dest="circle_gradient_mode", default=S, choices=GRADIENT_MODES,
                      help="modo de degradado del circulo: rgb (medio gris), warm "
                           "(via verde/amarillo), cool (via magenta), oklch (perceptual)")
@@ -522,6 +530,8 @@ def main() -> None:
         ap.error("--circle-radius-mult debe estar entre 1.0 y 3.0")
     if hasattr(args, "circle_max_height") and not 0.0 <= args.circle_max_height <= 100.0:
         ap.error("--circle-max-height debe estar entre 0 y 100")
+    if hasattr(args, "circle_center") and not 0.0 <= args.circle_center <= 100.0:
+        ap.error("--circle-center debe estar entre 0 y 100")
     if hasattr(args, "vinyl_scale") and not 0.3 <= args.vinyl_scale <= 1.0:
         ap.error("--vinyl-scale debe estar entre 0.3 y 1.0")
 
@@ -590,6 +600,7 @@ def main() -> None:
                      max_bar_height=eff["max_bar_height"], enabled_viz=enabled_viz,
                      circle_radius_mult=eff["circle_radius_mult"],
                      circle_max_height=eff["circle_max_height"],
+                     circle_center=eff["circle_center"],
                      circle_gradient_mode=eff["circle_gradient_mode"],
                      vinyl_scale=eff["vinyl_scale"],
                      bars_gradient_mode=eff["bars_gradient_mode"],
@@ -868,16 +879,24 @@ def main() -> None:
         screen.fill(BG)
         w, h = screen.get_size()
 
+        # Centro del conjunto disco+caratula+circulo: la X queda al medio; la Y la
+        # controla circle_center como ALTURA (% del alto, 50 = mitad, el default de
+        # siempre): mas alto sube el conjunto, mas bajo lo baja. Por eso invertimos
+        # respecto al eje Y de pantalla (que crece hacia abajo). Se calcula una sola
+        # vez y lo comparten el ctx del circulo y el vinilo/caratula, asi los tres se
+        # mueven en bloque.
+        center = (w // 2, int(h * (1.0 - view.circle_center / 100.0)))
+
         # El estado de reproduccion se lee SIEMPRE (aunque la barra este oculta
         # con M): controla el giro del vinilo. Sin metadata, el disco gira.
         now_playing = metadata_monitor.read() if metadata_monitor else None
         spinning = now_playing.is_playing if now_playing is not None else True
 
+        # La barra de now-playing se DIBUJA despues (mas abajo), para que quede por
+        # encima del circulo/vinilo y no la tape ninguna visualizacion. Aca solo
+        # reservamos su alto para que el resto (HUD, ctx) sepa cuanto ocupa arriba.
         media_info = now_playing if view.show_metadata else None
-        header_h = 0
-        if media_info is not None:
-            draw_metadata_bar(screen, font_meta, w, media_info)
-            header_h = META_BAR_H
+        header_h = META_BAR_H if media_info is not None else 0
 
         if frame is not None:
             # Geometria del vinilo central: la comparte el ctx para que las
@@ -889,7 +908,7 @@ def main() -> None:
                                 colors=CH_COLORS, grid_color=GRID,
                                 bars_gradient_mode=view.bars_gradient_mode,
                                 bars_gradient_scope=view.bars_gradient_scope,
-                                center=(w // 2, h // 2), disc_radius=disc_radius,
+                                center=center, disc_radius=disc_radius,
                                 circle_radius_mult=view.circle_radius_mult,
                                 circle_max_height_frac=view.circle_max_height / 100.0,
                                 circle_gradient_mode=view.circle_gradient_mode,
@@ -928,7 +947,6 @@ def main() -> None:
         # C cicla entre caratula+disco / solo disco / solo caratula / nada.
         show_vinyl, show_art = THUMB_MODES[view.thumb_mode]
         if show_vinyl or show_art:
-            center = (w // 2, h // 2)
             box = thumb_box(w, h, view.vinyl_scale)
 
             # Disco de fondo: cacheado por diametro, rotado por frame.
@@ -950,6 +968,11 @@ def main() -> None:
                     art_panel = build_art_panel(thumb_surface, box)
                     art_panel_for = box
                 screen.blit(art_panel, art_panel.get_rect(center=center))
+
+        # Barra de now-playing: se pinta ahora, encima del circulo y el vinilo, para
+        # que ninguna visualizacion la tape (su alto ya se reservo arriba en header_h).
+        if media_info is not None:
+            draw_metadata_bar(screen, font_meta, w, media_info)
 
         # HUD de datos (esquina sup. izq.) y linea de ayuda con atajos. Ambos son
         # desactivables desde el panel (tabs "visual" y "datos"). Un cursor

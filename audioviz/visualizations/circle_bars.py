@@ -23,6 +23,7 @@ from .base import (RenderContext, SliderSetting, StepperSetting, ToggleSetting,
 from .gradient import GRADIENT_LABELS, GRADIENT_MODES, build_gradient
 
 DEFAULT_RADIUS_MULT = 1.1   # radio interior por defecto = radio del vinilo * esto
+DEFAULT_CENTER = 50.0       # posicion vertical del centro por defecto (% del alto; 50 = mitad)
 FILL = 0.7            # fraccion angular ocupada por la barra (resto: hueco)
 OUTER_PAD = 8         # px que dejamos libres hasta el borde de la ventana
 MIN_LEN = 2.0         # largo minimo de barra, para que el anillo nunca desaparezca
@@ -45,6 +46,8 @@ class CircleBarsVisualization(Visualization):
             SliderSetting("radio", "circle_radius_mult", 1.0, 3.0, step=0.05,
                           integer=False, fmt=lambda v: f"{v:.2f}x"),
             SliderSetting("alto", "circle_max_height", 0, 100, step=1,
+                          fmt=lambda v: f"{int(v)} %"),
+            SliderSetting("centro", "circle_center", 0, 100, step=1,
                           fmt=lambda v: f"{int(v)} %"),
             StepperSetting("degradado", "circle_gradient_mode",
                            GRADIENT_MODES, GRADIENT_LABELS),
