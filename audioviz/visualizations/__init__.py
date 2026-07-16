@@ -10,11 +10,13 @@ from __future__ import annotations
 
 from .bars import BarsVisualization
 from .base import RenderContext, Visualization
+from .circle_bars import CircleBarsVisualization
 
 # Clases, no instancias: el visualizador construye una instancia de cada una (una
 # visualizacion puede querer cachear estado propio entre cuadros).
 REGISTRY: list[type[Visualization]] = [
     BarsVisualization,
+    CircleBarsVisualization,
 ]
 
 __all__ = ["RenderContext", "Visualization", "REGISTRY", "build_visualizations"]

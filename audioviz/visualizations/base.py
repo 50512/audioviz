@@ -44,6 +44,8 @@ class RenderContext:
     max_height_frac: float                      # tope de altura como fraccion 0..1 del alto
     colors: Sequence[tuple[int, int, int]]      # color por canal
     grid_color: tuple[int, int, int]            # color de las lineas de base
+    center: tuple[int, int]                     # centro del disco/vinilo central (px)
+    disc_radius: float                          # radio del vinilo central (px), este o no visible
 
 
 class Visualization:

@@ -460,9 +460,14 @@ def main() -> None:
             header_h = META_BAR_H
 
         if frame is not None:
+            # Geometria del vinilo central: la comparte el ctx para que las
+            # visualizaciones (p.ej. el circulo) se ubiquen respecto al disco,
+            # este visible o no. Misma cuenta que usa el bloque del vinilo.
+            disc_radius = thumb_box(w, h) * VINYL_ART_RATIO / 2.0
             ctx = RenderContext(width=w, height=h, header_h=header_h,
                                 max_height_frac=view.max_bar_height / 100.0,
-                                colors=CH_COLORS, grid_color=GRID)
+                                colors=CH_COLORS, grid_color=GRID,
+                                center=(w // 2, h // 2), disc_radius=disc_radius)
             for viz in visualizations:
                 if view.enabled_viz.get(viz.id):
                     viz.draw(screen, frame, ctx)
