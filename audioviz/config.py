@@ -29,6 +29,10 @@ CONFIG_PATH = os.path.join(APP_DIR, "config.json")
 SOURCES = ("fb2k", "loopback", "mic", "tone")
 DISTRIBUTIONS = ("log", "octaves")
 
+# Host por defecto de los servicios de metadata/caratula (IP o hostname). El
+# puerto y las rutas son fijos (formato de la API); ver build_urls en visualizer.
+DEFAULT_HOST = "127.0.0.1"
+
 # Esquema: clave canonica -> valor por defecto. Estas claves son las que se
 # persisten y las que el visualizador fusiona con el archivo y los flags. Los
 # nombres coinciden con los `dest` de argparse (asi el merge es directo).
@@ -53,6 +57,7 @@ DEFAULTS: dict = {
     "circle_use_cover": False,
     "bars_cover_2col": DEFAULT_BARS_COVER_2,
     "circle_symmetric": False,
+    "host": DEFAULT_HOST,
     "show_metadata": True,
     "thumb_mode": 0,
     "fullscreen_display": 0,
@@ -117,6 +122,7 @@ def snapshot(view, engine) -> dict:
         "circle_use_cover": view.circle_use_cover,
         "bars_cover_2col": view.bars_cover_2col,
         "circle_symmetric": view.circle_symmetric,
+        "host": view.host,
         "show_metadata": view.show_metadata,
         "thumb_mode": view.thumb_mode,
         "fullscreen_display": view.fullscreen_display,

@@ -74,8 +74,30 @@ VINYL_LABEL = (30, 31, 40)   # circulo central (tapado por la caratula si existe
 VINYL_SHEEN = (46, 50, 66)   # brillo aditivo que hace visible el giro
 VINYL_SPIN_DPS = 45.0        # grados por segundo mientras hay reproduccion
 
-DEFAULT_METADATA_URL = "ws://100.97.196.102:25012/ws/media-info"
-DEFAULT_THUMBNAIL_URL = "ws://100.97.196.102:25012/ws/thumbnail"
+WS_PORT = 25012            # puerto de los servicios de metadata/caratula (fijo)
+
+
+def build_urls(host: str) -> tuple[str, str]:
+    """(url_metadata, url_thumbnail) desde el host (IP o hostname). El puerto y
+    las rutas son el formato de la API. Host vacio -> ('', '') = sin conexion."""
+    host = host.strip()
+    if not host:
+        return "", ""
+    base = f"ws://{host}:{WS_PORT}/ws"
+    return f"{base}/media-info", f"{base}/thumbnail"
+
+
+def build_monitors(host: str):
+    """Crea y arranca los monitores para el host. Devuelve (metadata, thumbnail),
+    cada uno None si el host esta vacio (sin conexion)."""
+    murl, turl = build_urls(host)
+    meta = MetadataMonitor(murl) if murl else None
+    if meta:
+        meta.start()
+    thumb = ThumbnailMonitor(turl) if turl else None
+    if thumb:
+        thumb.start()
+    return meta, thumb
 
 
 _display_bounds_cache: list[tuple[int, int, int, int]] | None = None
@@ -290,7 +312,8 @@ class ViewState:
                  vinyl_scale: float = 1.0, bars_gradient_mode: str = "solid",
                  bars_gradient_scope: str = "channel", bars_use_cover: bool = False,
                  circle_use_cover: bool = False, bars_cover_2col: str = "gradient",
-                 circle_symmetric: bool = False, fullscreen_display: int = 0):
+                 circle_symmetric: bool = False, host: str = "",
+                 fullscreen_display: int = 0):
         self.show_metadata = show_metadata
         self.thumb_mode = thumb_mode
         # Tope de altura de las barras verticales, como % del alto de la pantalla.
@@ -322,6 +345,9 @@ class ViewState:
         self.bars_cover_2col = bars_cover_2col
         # Circulo: color por posicion (simetrico, sin costura) en vez de por banda.
         self.circle_symmetric = circle_symmetric
+        # Host (IP/hostname) de los servicios de metadata/caratula. Editable en el
+        # panel; el visualizador reconstruye los monitores cuando cambia.
+        self.host = host
         # Indice del monitor al que se ancla la pantalla completa (F11).
         self.fullscreen_display = fullscreen_display
 
@@ -362,15 +388,14 @@ def main() -> None:
     ap.add_argument("--bars-scope", dest="bars_gradient_scope", default=S, choices=BARS_SCOPES,
                      help="alcance del degradado de barras: channel (grave->agudo por "
                           "canal) o span (grave L -> grave R, todo el ancho)")
+    ap.add_argument("--host", default=S,
+                     help="IP o hostname de los servicios de metadata/caratula "
+                          "(puerto y rutas fijos; vacio para desactivarlos)")
     # No-config: argumentos de arranque, no se persisten.
     ap.add_argument("--fps", type=float, default=60.0)
     ap.add_argument("--seconds", type=float, default=0.0, help="0 = infinito")
     ap.add_argument("--no-config", action="store_true",
                      help="no leer ni escribir el archivo de configuracion (arranque limpio)")
-    ap.add_argument("--metadata-url", default=DEFAULT_METADATA_URL,
-                     help="WebSocket de now-playing (vacio para desactivarlo del todo)")
-    ap.add_argument("--thumbnail-url", default=DEFAULT_THUMBNAIL_URL,
-                     help="WebSocket de caratula (vacio para desactivarlo del todo)")
     args = ap.parse_args()
 
     # Solo se validan los flags realmente pasados (con SUPPRESS, los ausentes no
@@ -404,16 +429,12 @@ def main() -> None:
                     note_hi=eff["note_hi"], bands_per_octave=eff["bands_per_octave"],
                     tuning=eff["tuning"])
 
-    # La metadata viaja por su propio WebSocket, ajeno al motor de audio: si el
-    # servicio no esta arriba el hilo simplemente reintenta en el fondo y
-    # read() devuelve None, sin afectar en nada al resto del visualizador.
-    metadata_monitor = MetadataMonitor(args.metadata_url) if args.metadata_url else None
-    if metadata_monitor:
-        metadata_monitor.start()
-
-    thumbnail_monitor = ThumbnailMonitor(args.thumbnail_url) if args.thumbnail_url else None
-    if thumbnail_monitor:
-        thumbnail_monitor.start()
+    # La metadata y la caratula viajan por sus propios WebSocket, ajenos al motor
+    # de audio: si el servicio no esta arriba el hilo reintenta en el fondo y
+    # read() devuelve None, sin afectar en nada al resto del visualizador. Ambos
+    # salen del mismo host (editable en el panel; se reconstruyen al cambiarlo).
+    metadata_monitor, thumbnail_monitor = build_monitors(eff["host"])
+    applied_host = eff["host"]   # host con el que estan armados los monitores
     # C cicla 4 vistas: (caratula+disco, solo disco, solo caratula, nada).
     # Cada estado dice si se dibuja el vinilo y/o la caratula.
     THUMB_MODES = [(True, True), (True, False), (False, True), (False, False)]
@@ -445,6 +466,7 @@ def main() -> None:
                      circle_use_cover=bool(eff["circle_use_cover"]),
                      bars_cover_2col=eff["bars_cover_2col"],
                      circle_symmetric=bool(eff["circle_symmetric"]),
+                     host=str(eff["host"]),
                      fullscreen_display=int(eff["fullscreen_display"]))
     panel = SettingsPanel(engine, view, THUMB_MODE_LABELS, visualizations)
     # Cache: el hilo del socket solo entrega bytes crudos; decodificar a
@@ -492,10 +514,13 @@ def main() -> None:
             if ev.type == pygame.QUIT:
                 running = False
                 continue
+            # Con un campo de texto del panel enfocado, el teclado es suyo: no
+            # robamos TAB/F11 ni los atajos (se escribirian en vez de tipearse).
+            editing = panel.editing
             # TAB abre/cierra el panel. El panel atiende sus propios clics (y el
             # ESC cuando esta abierto); si consume el evento, no lo tratamos como
             # atajo. Con el panel cerrado los atajos directos siguen intactos.
-            if ev.type == pygame.KEYDOWN and ev.key == pygame.K_TAB:
+            if not editing and ev.type == pygame.KEYDOWN and ev.key == pygame.K_TAB:
                 panel.toggle()
                 continue
             # F11 alterna pantalla completa <-> ventana. Usamos borderless (una
@@ -503,7 +528,7 @@ def main() -> None:
             # resolucion nativa del display y evita los glitches del cambio de
             # modo que trae FULLSCREEN real. Al entrar guardamos el tamano
             # actual; al salir lo restauramos como ventana redimensionable.
-            if ev.type == pygame.KEYDOWN and ev.key == pygame.K_F11:
+            if not editing and ev.type == pygame.KEYDOWN and ev.key == pygame.K_F11:
                 fullscreen = not fullscreen
                 if fullscreen:
                     windowed_size = screen.get_size()
@@ -542,9 +567,20 @@ def main() -> None:
                 elif ev.key == pygame.K_c:
                     view.thumb_mode = (view.thumb_mode + 1) % len(THUMB_MODES)
 
-        # El panel se acaba de cerrar: persistimos el estado (salvo --no-config).
-        if panel_was_open and not panel.open and not args.no_config:
-            config.save(config.snapshot(view, engine))
+        # El panel se acaba de cerrar: aplicamos cambios de host (reconstruyendo
+        # los monitores en caliente) y persistimos el estado (salvo --no-config).
+        if panel_was_open and not panel.open:
+            if view.host != applied_host:
+                if metadata_monitor:
+                    metadata_monitor.stop()
+                if thumbnail_monitor:
+                    thumbnail_monitor.stop()
+                metadata_monitor, thumbnail_monitor = build_monitors(view.host)
+                applied_host = view.host
+                # La caratula vieja ya no aplica: la nueva conexion la reemplaza.
+                thumb_raw = thumb_surface = art_panel = art_panel_for = cover_palette = None
+            if not args.no_config:
+                config.save(config.snapshot(view, engine))
 
         # Si el panel cambio el monitor de destino mientras estamos en pantalla
         # completa, movemos la ventana al nuevo monitor en caliente. (El panel no

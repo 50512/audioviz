@@ -187,6 +187,56 @@ class Toggle:
         pygame.draw.circle(surf, TOGGLE_KNOB, (cx, r.centery), 8)
 
 
+class TextInput:
+    """Campo de texto de una linea. Click para enfocar; se escribe con el teclado;
+    Enter o click afuera confirma; Esc desenfoca sin guardar. Mientras esta
+    enfocado edita un buffer propio y solo lo vuelca al setter al confirmar, para
+    que un cambio a medio escribir no dispare nada (p.ej. reconectar sockets)."""
+
+    def __init__(self, get, setter, placeholder=""):
+        self.get, self.set = get, setter
+        self.placeholder = placeholder
+        self.rect = pygame.Rect(0, 0, 0, 0)
+        self.focused = False
+        self._buf = ""
+
+    def commit(self) -> None:
+        if self.focused:
+            self.set(self._buf.strip())
+            self.focused = False
+
+    def handle(self, ev) -> bool:
+        if ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1 and self.rect.collidepoint(ev.pos):
+            if not self.focused:
+                self.focused = True
+                self._buf = self.get() or ""
+            return True
+        if self.focused and ev.type == pygame.KEYDOWN:
+            if ev.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                self.commit()
+            elif ev.key == pygame.K_ESCAPE:
+                self.focused = False          # cancela sin guardar
+            elif ev.key == pygame.K_BACKSPACE:
+                self._buf = self._buf[:-1]
+            elif ev.unicode and ev.unicode.isprintable():
+                self._buf += ev.unicode
+            return True
+        return False
+
+    def draw(self, surf, font):
+        r = self.rect
+        pygame.draw.rect(surf, BTN_BG, r, border_radius=5)
+        pygame.draw.rect(surf, TRACK_FILL if self.focused else PANEL_BORDER,
+                         r, width=2 if self.focused else 1, border_radius=5)
+        shown = self._buf if self.focused else (self.get() or "")
+        color = VALUE if shown else LABEL
+        surf.blit(font.render(shown or self.placeholder, True, color),
+                  (r.x + 8, r.centery - font.get_height() // 2))
+        if self.focused:
+            cx = r.x + 8 + font.size(self._buf)[0] + 1
+            pygame.draw.line(surf, VALUE, (cx, r.centery - 8), (cx, r.centery + 8), 1)
+
+
 class SettingsPanel:
     """Modal centrado. Se abre/cierra con toggle(); cuando esta abierto,
     consume los eventos de mouse que caen sobre el (los clics fuera lo cierran).
@@ -247,6 +297,9 @@ class SettingsPanel:
 
         # --- pestana VISUAL: presentacion general + que visualizaciones se ven -
         visual = [
+            _Row("host", TextInput(lambda: view.host,
+                                   lambda v: setattr(view, "host", v),
+                                   placeholder="ip del host")),
             _Row("metadata", Toggle(lambda: view.show_metadata,
                                     lambda v: setattr(view, "show_metadata", v))),
             _Row("vista", Stepper(lambda: view.thumb_mode,
@@ -306,6 +359,19 @@ class SettingsPanel:
         """Filas visibles de la pestana activa."""
         return [r for r in self.tabs[self.active_tab][1] if r.visible()]
 
+    def _focused_input(self):
+        """El campo de texto enfocado (si hay uno), o None."""
+        for r in self._visible_rows():
+            if isinstance(r.control, TextInput) and r.control.focused:
+                return r.control
+        return None
+
+    @property
+    def editing(self) -> bool:
+        """True si hay un campo de texto capturando el teclado. El visualizador
+        lo consulta para no robar TAB/F11/atajos mientras se escribe."""
+        return self.open and self._focused_input() is not None
+
     def _layout(self, size) -> None:
         rows = self._visible_rows()
         title_h = 30
@@ -335,6 +401,17 @@ class SettingsPanel:
         if not self.open:
             return False
         self._layout(size)
+
+        # Con un campo de texto enfocado el teclado es suyo (typing/Enter/Esc);
+        # no lo tratamos como cierre de panel ni atajo.
+        focused = self._focused_input()
+        if focused is not None and ev.type == pygame.KEYDOWN:
+            focused.handle(ev)
+            return True
+        # Un click fuera del campo enfocado confirma su edicion (y sigue el flujo).
+        if (focused is not None and ev.type == pygame.MOUSEBUTTONDOWN
+                and not focused.rect.collidepoint(ev.pos)):
+            focused.commit()
 
         if ev.type == pygame.KEYDOWN and ev.key == pygame.K_ESCAPE:
             self.open = False
