@@ -17,7 +17,8 @@ from __future__ import annotations
 import json
 import os
 
-from .visualizations.bars import DEFAULT_BARS_GRADIENT, DEFAULT_BARS_SCOPE
+from .visualizations.bars import (DEFAULT_BARS_COVER_2, DEFAULT_BARS_GRADIENT,
+                                  DEFAULT_BARS_SCOPE)
 from .visualizations.circle_bars import DEFAULT_RADIUS_MULT
 from .visualizations.gradient import DEFAULT_GRADIENT
 
@@ -50,6 +51,7 @@ DEFAULTS: dict = {
     "bars_gradient_scope": DEFAULT_BARS_SCOPE,
     "bars_use_cover": False,
     "circle_use_cover": False,
+    "bars_cover_2col": DEFAULT_BARS_COVER_2,
     "show_metadata": True,
     "thumb_mode": 0,
     "fullscreen_display": 0,
@@ -112,6 +114,7 @@ def snapshot(view, engine) -> dict:
         "bars_gradient_scope": view.bars_gradient_scope,
         "bars_use_cover": view.bars_use_cover,
         "circle_use_cover": view.circle_use_cover,
+        "bars_cover_2col": view.bars_cover_2col,
         "show_metadata": view.show_metadata,
         "thumb_mode": view.thumb_mode,
         "fullscreen_display": view.fullscreen_display,

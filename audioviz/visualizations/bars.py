@@ -31,6 +31,12 @@ BARS_SCOPES = ["channel", "span"]
 BARS_SCOPE_LABELS = ["por canal", "extremos"]
 DEFAULT_BARS_SCOPE = "channel"
 
+# En modo caratula con EXACTAMENTE 2 colores: mezclarlos (degradado) o asignar
+# uno solido a cada canal. Con 1 color siempre es solido, con 3 siempre degradado.
+BARS_COVER_2 = ["gradient", "split"]
+BARS_COVER_2_LABELS = ["degradado", "por canal"]
+DEFAULT_BARS_COVER_2 = "gradient"
+
 
 def draw_channel(surf, band_h, rect, color, reverse=False):
     """band_h: (n_bands,) en 0..1. rect: (x, y, w, h).
@@ -69,6 +75,8 @@ class BarsVisualization(Visualization):
             StepperSetting("aplicar", "bars_gradient_scope",
                            BARS_SCOPES, BARS_SCOPE_LABELS),
             ToggleSetting("caratula", "bars_use_cover"),
+            StepperSetting("2 colores", "bars_cover_2col",
+                           BARS_COVER_2, BARS_COVER_2_LABELS),
         ]
 
     def _bar_colors(self, n, stops, mode, scope):
@@ -104,7 +112,10 @@ class BarsVisualization(Visualization):
         use_cover = bool(ctx.bars_use_cover and ctx.cover_palette)
         if use_cover:
             stops, mode = ctx.cover_palette, "oklch"
-            solid = len(stops) == 1
+            # "por canal" con exactamente 2 colores: un color solido por canal en
+            # vez de mezclarlos. Con 1 color siempre solido; con 3, siempre degradado.
+            split = len(stops) == 2 and ctx.bars_cover_2col == "split"
+            solid = len(stops) == 1 or split
         else:
             stops = [ctx.colors[0], ctx.colors[1]]
             mode = ctx.bars_gradient_mode
@@ -112,10 +123,11 @@ class BarsVisualization(Visualization):
 
         row_col = None
         if solid:
-            # Solido: con caratula de 1 color, ese color en ambos canales; por
-            # defecto, un color plano por canal (izq celeste, der rojo).
+            # Solido: color plano por canal. Con caratula, cada canal toma un color
+            # de la paleta ciclando (stops[-1]==stops[0] si hay 1 solo, asi que ese
+            # unico color va a ambos canales); por defecto, izq celeste / der rojo.
             if use_cover:
-                left_col = right_col = stops[0]
+                left_col, right_col = stops[0], stops[-1]
             else:
                 left_col, right_col = ctx.colors[0], ctx.colors[1]
         else:
@@ -150,7 +162,9 @@ class BarsVisualization(Visualization):
                 y = top + c * (plot_h + gap)
                 bottom = y + plot_h
                 if solid:
-                    col = stops[0] if use_cover else ctx.colors[c % len(ctx.colors)]
+                    # caratula: cicla la paleta por canal (1 color -> siempre el
+                    # mismo); por defecto, un color de canal por fila.
+                    col = stops[c % len(stops)] if use_cover else ctx.colors[c % len(ctx.colors)]
                 else:
                     col = row_col
                 pygame.draw.line(surf, ctx.grid_color, (pad, bottom), (w - pad, bottom))

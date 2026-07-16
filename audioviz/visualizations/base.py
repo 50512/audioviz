@@ -89,6 +89,7 @@ class RenderContext:
     cover_palette: "list[tuple[int, int, int]] | None"  # 1..3 colores de la caratula (o None)
     bars_use_cover: bool                        # las barras usan la paleta de la caratula
     circle_use_cover: bool                      # el circulo usa la paleta de la caratula
+    bars_cover_2col: str                        # caratula 2 colores en barras: gradient/split (uno por canal)
 
 
 class Visualization:
