@@ -1,12 +1,12 @@
 """GUI de referencia (pygame). Se engancha al Engine y no sabe NADA de sockets,
 WASAPI, FFT ni ventanas de Hann. Solo pide frames y dibuja.
 
-    python -m audioviz.gui_pygame --source fb2k
     python -m audioviz.gui_pygame --source loopback --attack-ms 20 --decay-ms 30
+    python -m audioviz.gui_pygame --source fb2k
     python -m audioviz.gui_pygame --source mic
 
 Teclas:
-    1 / 2 / 3 / 4   fuente: fb2k / loopback / mic / tone   (hot-swap, sin reiniciar)
+    1 / 2 / 3 / 4   fuente: loopback / fb2k / mic / tone   (hot-swap, sin reiniciar)
     Q / A       attack  -/+
     W / S       decay   -/+
     M           metadata (now playing) on/off
@@ -359,7 +359,7 @@ def main() -> None:
     # El `dest` de cada uno coincide con la clave del esquema en config.py.
     S = argparse.SUPPRESS
     ap = argparse.ArgumentParser()
-    ap.add_argument("--source", default=S, choices=["fb2k", "loopback", "mic", "tone"])
+    ap.add_argument("--source", default=S, choices=["loopback", "fb2k", "mic", "tone"])
     ap.add_argument("--attack-ms", dest="attack_ms", type=float, default=S)
     ap.add_argument("--decay-ms", dest="decay_ms", type=float, default=S)
     ap.add_argument("--bands", dest="n_bands", type=int, default=S, help="solo para --dist log")
@@ -468,7 +468,17 @@ def main() -> None:
                      circle_symmetric=bool(eff["circle_symmetric"]),
                      host=str(eff["host"]),
                      fullscreen_display=int(eff["fullscreen_display"]))
-    panel = SettingsPanel(engine, view, THUMB_MODE_LABELS, visualizations)
+    def persist_config() -> None:
+        """Vuelca el estado vivo al archivo (salvo --no-config). Best-effort:
+        config.save degrada en silencio si no puede escribir. Lo usan el cierre
+        del panel y el cambio de fuente (que ocurre tambien fuera del panel)."""
+        if not args.no_config:
+            config.save(config.snapshot(view, engine))
+
+    # on_source_change: la fuente puede cambiar desde el panel o por atajo, y en
+    # ambos casos queremos guardarla al instante, sin esperar al cierre del panel.
+    panel = SettingsPanel(engine, view, THUMB_MODE_LABELS, visualizations,
+                          on_source_change=persist_config)
     # Cache: el hilo del socket solo entrega bytes crudos; decodificar a
     # Surface y convert_alpha() necesita el contexto de video, asi que se
     # hace aca, en el hilo principal, y solo cuando cambian los bytes.
@@ -481,7 +491,7 @@ def main() -> None:
     vinyl_angle = 0.0                              # se acumula solo mientras hay play
     cover_palette: list | None = None             # 1..3 colores de la caratula actual
 
-    keymap = {pygame.K_1: "fb2k", pygame.K_2: "loopback", pygame.K_3: "mic", pygame.K_4: "tone"}
+    keymap = {pygame.K_1: "loopback", pygame.K_2: "fb2k", pygame.K_3: "mic", pygame.K_4: "tone"}
     running = True
     elapsed = 0.0
 
@@ -551,6 +561,7 @@ def main() -> None:
                 elif ev.key in keymap:
                     try:
                         engine.set_source(keymap[ev.key])   # hot-swap
+                        persist_config()                    # guarda la fuente elegida
                     except Exception as exc:
                         print(f"no se pudo cambiar de fuente: {exc}")
                 # Parametros vivos: escribir la propiedad reconfigura el motor.
@@ -579,8 +590,7 @@ def main() -> None:
                 applied_host = view.host
                 # La caratula vieja ya no aplica: la nueva conexion la reemplaza.
                 thumb_raw = thumb_surface = art_panel = art_panel_for = cover_palette = None
-            if not args.no_config:
-                config.save(config.snapshot(view, engine))
+            persist_config()
 
         # Si el panel cambio el monitor de destino mientras estamos en pantalla
         # completa, movemos la ventana al nuevo monitor en caliente. (El panel no

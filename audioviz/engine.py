@@ -53,7 +53,7 @@ def make_source(name: str, **kw) -> AudioSource:
 
 
 class Engine:
-    def __init__(self, source: str = "fb2k", fps: float = 60.0,
+    def __init__(self, source: str = "loopback", fps: float = 60.0,
                  attack_ms: float = 20.0, decay_ms: float = 300.0,
                  n_bands: int = 48, lo_hz: float = 30.0, hi_hz: float = 16000.0,
                  distribution: str = "log", note_lo: str = "C0",

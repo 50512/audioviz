@@ -242,9 +242,14 @@ class SettingsPanel:
     consume los eventos de mouse que caen sobre el (los clics fuera lo cierran).
     """
 
-    def __init__(self, engine, view, thumb_mode_labels, visualizations=()):
+    def __init__(self, engine, view, thumb_mode_labels, visualizations=(),
+                 on_source_change: Callable[[], None] | None = None):
         self.engine = engine
         self.view = view          # objeto con show_metadata, thumb_mode, max_bar_height
+        # Se invoca al cambiar de fuente para persistir el ajuste al instante (el
+        # resto del estado se guarda al cerrar el panel; la fuente tambien puede
+        # cambiar por atajo de teclado, asi que su guardado no espera al cierre).
+        self._on_source_change = on_source_change or (lambda: None)
         self.open = False
         self.rect = pygame.Rect(0, 0, PANEL_W, 0)
         self.font = pygame.font.SysFont("consolas", 14)
@@ -262,7 +267,7 @@ class SettingsPanel:
         # convierte al vuelo. parse_note('C0')=12, parse_note('F#10')=138.
         audio = [
             _Row("fuente", Stepper(lambda: eng.source_name, self._set_source,
-                                   ["fb2k", "loopback", "mic", "tone"])),
+                                   ["loopback", "fb2k", "mic", "tone"])),
             _Row("attack", Slider(lambda: eng.attack_ms,
                                   lambda v: setattr(eng, "attack_ms", v),
                                   1, 500, step=1, fmt=lambda v: f"{int(v)} ms")),
@@ -352,6 +357,7 @@ class SettingsPanel:
     def _set_source(self, name) -> None:
         try:
             self.engine.set_source(name)   # hot-swap, igual que el atajo 1/2/3/4
+            self._on_source_change()       # persiste la fuente sin esperar al cierre
         except Exception as exc:
             print(f"no se pudo cambiar de fuente: {exc}")
 

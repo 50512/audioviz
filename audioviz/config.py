@@ -26,7 +26,7 @@ APP_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "au
 CONFIG_PATH = os.path.join(APP_DIR, "config.json")
 
 # Fuentes de audio validas (para sanear un archivo corrupto o editado a mano).
-SOURCES = ("fb2k", "loopback", "mic", "tone")
+SOURCES = ("loopback", "fb2k", "mic", "tone")
 DISTRIBUTIONS = ("log", "octaves")
 
 # Host por defecto de los servicios de metadata/caratula (IP o hostname). El
@@ -37,7 +37,7 @@ DEFAULT_HOST = "127.0.0.1"
 # persisten y las que el visualizador fusiona con el archivo y los flags. Los
 # nombres coinciden con los `dest` de argparse (asi el merge es directo).
 DEFAULTS: dict = {
-    "source": "fb2k",
+    "source": "loopback",
     "attack_ms": 20.0,
     "decay_ms": 250.0,
     "distribution": "log",
