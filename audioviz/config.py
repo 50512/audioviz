@@ -61,6 +61,9 @@ DEFAULTS: dict = {
     "show_metadata": True,
     "thumb_mode": 0,
     "fullscreen_display": 0,
+    "palette_strict": True,
+    "palette_relaxed": True,
+    "palette_default_fallback": True,
     # enabled_viz no esta aca: su default depende del registro de visualizaciones
     # (cada una trae su default_on), asi que lo arma el visualizador.
 }
@@ -126,5 +129,8 @@ def snapshot(view, engine) -> dict:
         "show_metadata": view.show_metadata,
         "thumb_mode": view.thumb_mode,
         "fullscreen_display": view.fullscreen_display,
+        "palette_strict": view.palette_strict,
+        "palette_relaxed": view.palette_relaxed,
+        "palette_default_fallback": view.palette_default_fallback,
         "enabled_viz": dict(view.enabled_viz),
     }

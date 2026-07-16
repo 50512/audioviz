@@ -313,7 +313,8 @@ class ViewState:
                  bars_gradient_scope: str = "channel", bars_use_cover: bool = False,
                  circle_use_cover: bool = False, bars_cover_2col: str = "gradient",
                  circle_symmetric: bool = False, host: str = "",
-                 fullscreen_display: int = 0):
+                 fullscreen_display: int = 0, palette_strict: bool = True,
+                 palette_relaxed: bool = True, palette_default_fallback: bool = True):
         self.show_metadata = show_metadata
         self.thumb_mode = thumb_mode
         # Tope de altura de las barras verticales, como % del alto de la pantalla.
@@ -350,6 +351,13 @@ class ViewState:
         self.host = host
         # Indice del monitor al que se ancla la pantalla completa (F11).
         self.fullscreen_display = fullscreen_display
+        # Filtros del extractor de color de la caratula, cada uno on/off desde el
+        # panel (ver extract_palette): 1er filtro estricto, 2do filtro (fallback
+        # permisivo) y el fallback por defecto. Con este ultimo apagado el motor
+        # pinta con los colores crudos extraidos, por mas inutilizables que sean.
+        self.palette_strict = palette_strict
+        self.palette_relaxed = palette_relaxed
+        self.palette_default_fallback = palette_default_fallback
 
 
 def main() -> None:
@@ -467,7 +475,10 @@ def main() -> None:
                      bars_cover_2col=eff["bars_cover_2col"],
                      circle_symmetric=bool(eff["circle_symmetric"]),
                      host=str(eff["host"]),
-                     fullscreen_display=int(eff["fullscreen_display"]))
+                     fullscreen_display=int(eff["fullscreen_display"]),
+                     palette_strict=bool(eff["palette_strict"]),
+                     palette_relaxed=bool(eff["palette_relaxed"]),
+                     palette_default_fallback=bool(eff["palette_default_fallback"]))
     def persist_config() -> None:
         """Vuelca el estado vivo al archivo (salvo --no-config). Best-effort:
         config.save degrada en silencio si no puede escribir. Lo usan el cierre
@@ -490,6 +501,17 @@ def main() -> None:
     vinyl_diam: int | None = None
     vinyl_angle = 0.0                              # se acumula solo mientras hay play
     cover_palette: list | None = None             # 1..3 colores de la caratula actual
+
+    def extract_cover_palette(surf):
+        """extract_palette con los flags vivos de los filtros (panel de ajustes)."""
+        return extract_palette(surf, strict=view.palette_strict,
+                               relaxed=view.palette_relaxed,
+                               default_fallback=view.palette_default_fallback)
+
+    def palette_flags():
+        return (view.palette_strict, view.palette_relaxed, view.palette_default_fallback)
+
+    applied_palette_flags = palette_flags()   # flags con los que se extrajo la paleta
 
     keymap = {pygame.K_1: "loopback", pygame.K_2: "fb2k", pygame.K_3: "mic", pygame.K_4: "tone"}
     running = True
@@ -590,6 +612,14 @@ def main() -> None:
                 applied_host = view.host
                 # La caratula vieja ya no aplica: la nueva conexion la reemplaza.
                 thumb_raw = thumb_surface = art_panel = art_panel_for = cover_palette = None
+            # Si se tocaron los filtros del extractor de color, re-extraemos la
+            # paleta de la caratula actual en caliente (el k-means es barato y la
+            # imagen ya esta decodificada; sin esto el cambio no se veria hasta la
+            # proxima pista).
+            if palette_flags() != applied_palette_flags:
+                applied_palette_flags = palette_flags()
+                if thumb_surface is not None:
+                    cover_palette = extract_cover_palette(thumb_surface)
             persist_config()
 
         # Si el panel cambio el monitor de destino mientras estamos en pantalla
@@ -665,7 +695,7 @@ def main() -> None:
                     if decoded is not None:
                         thumb_surface = decoded
                         art_panel = art_panel_for = None  # invalida el panel: hay imagen nueva
-                        cover_palette = extract_palette(decoded)  # 1..3 colores, o None
+                        cover_palette = extract_cover_palette(decoded)  # 1..3 colores, o None
 
         # C cicla entre caratula+disco / solo disco / solo caratula / nada.
         show_vinyl, show_art = THUMB_MODES[view.thumb_mode]

@@ -318,6 +318,15 @@ class SettingsPanel:
                                      lambda v: setattr(view, "fullscreen_display", v),
                                      list(range(n_disp)), disp_labels),
                  visible=lambda: n_disp > 1),
+            # Filtros del extractor de color de la caratula. Se aplican al cerrar el
+            # panel (re-extraen la paleta de la pista actual). El fallback por
+            # defecto, apagado, hace que se pinten los colores crudos extraidos.
+            _Row("color estricto", Toggle(lambda: view.palette_strict,
+                                          lambda v: setattr(view, "palette_strict", v))),
+            _Row("color permisivo", Toggle(lambda: view.palette_relaxed,
+                                           lambda v: setattr(view, "palette_relaxed", v))),
+            _Row("color fallback", Toggle(lambda: view.palette_default_fallback,
+                                          lambda v: setattr(view, "palette_default_fallback", v))),
         ]
         # Un interruptor por visualizacion registrada. El id se ata por argumento
         # por defecto para que cada lambda capture el suyo (no el ultimo del bucle).

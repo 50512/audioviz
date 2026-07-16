@@ -87,18 +87,26 @@ def _kmeans(points: np.ndarray, k: int, seed: int, iters: int):
     return centers, counts
 
 
-def _select(centers, counts, gray_chroma):
+def _select(centers, counts, gray_chroma, *, discard=True, normalize=True):
     """Elige la paleta final (1..3 colores) a partir de los centros del k-means,
     o None si ninguno es utilizable. `gray_chroma` es el piso de croma: sube la
     exigencia contra los grises. El resto de umbrales es fijo.
 
     Descarta -> fusiona -> cuenta -> normaliza. El descarte va ANTES de fusionar:
     si no, un gris/negro dominante se traga un acento sutil al promediarse con el
-    (el centro fusionado queda gris y se descarta, perdiendo el color)."""
+    (el centro fusionado queda gris y se descarta, perdiendo el color).
+
+    discard=False salta el filtro de casi-puros/grises (se queda con TODOS los
+    centros con peso); normalize=False deja la luminosidad cruda (sin subir
+    oscuros ni bajar claros). Ambos en False = paleta cruda, tal cual salio del
+    k-means: el ultimo recurso cuando no se quiere caer a los colores por defecto."""
     L = centers[:, 0]
     chroma = np.hypot(centers[:, 1], centers[:, 2])
-    near_pure = ((L < BLACK_L) | (L > WHITE_L)) & (chroma < LOW_CHROMA)
-    usable = (counts > 0) & ~near_pure & (chroma >= gray_chroma)
+    if discard:
+        near_pure = ((L < BLACK_L) | (L > WHITE_L)) & (chroma < LOW_CHROMA)
+        usable = (counts > 0) & ~near_pure & (chroma >= gray_chroma)
+    else:
+        usable = counts > 0
     centers, counts = centers[usable], counts[usable]
     if len(centers) == 0:
         return None
@@ -129,22 +137,33 @@ def _select(centers, counts, gray_chroma):
     # Normaliza la luminosidad al rango visible (conserva tono y croma; solo sube
     # oscuros / baja claros) y ordena por L para un mapeo estable.
     chosen = kept[:n].copy()
-    chosen[:, 0] = np.clip(chosen[:, 0], L_FLOOR, L_CEIL)
+    if normalize:
+        chosen[:, 0] = np.clip(chosen[:, 0], L_FLOOR, L_CEIL)
     chosen = chosen[np.argsort(chosen[:, 0])]
     return [tuple(int(v) for v in _oklab_to_rgb(tuple(c))) for c in chosen]
 
 
-def extract_palette(surface: pygame.Surface) -> list[tuple[int, int, int]] | None:
+def extract_palette(surface: pygame.Surface, *, strict: bool = True,
+                    relaxed: bool = True,
+                    default_fallback: bool = True) -> list[tuple[int, int, int]] | None:
     """Paleta de 1 a 3 colores de la caratula, o None si no hay nada usable (el
     llamador cae entonces a los colores por defecto). Determinista.
 
     Degradacion en niveles antes de rendirse: se clusteriza UNA vez y se intenta
-    la seleccion en dos pasadas cada vez mas permisivas:
-      1) estricta: recorta grises (GRAY_CHROMA), para acentos vivos;
-      2) permisiva: admite grises (RELAXED_CHROMA), como el proceso anterior,
-         por si la reduccion de la imagen dejo solo tonos apagados/grisaceos.
-    Recien si ambas fallan se devuelve None. Reusar el k-means hace que la segunda
-    pasada sea practicamente gratis (solo se rehace la seleccion)."""
+    la seleccion en pasadas cada vez mas permisivas. Cada nivel se puede apagar
+    (los flags vienen del panel de ajustes), y saltearlos pasa el testigo al
+    siguiente:
+      1) `strict`:  recorta oscuros/claros/grises (GRAY_CHROMA), para acentos vivos;
+      2) `relaxed`: fallback del 1; admite grises (RELAXED_CHROMA) pero sigue
+                    cortando los extremos oscuros/claros, por si la reduccion de la
+                    imagen dejo solo tonos apagados/grisaceos;
+      3) al llegar aca sin paleta, `default_fallback` decide el ultimo recurso:
+           - True  -> devuelve None: el motor pinta con sus colores por defecto;
+           - False -> devuelve la paleta CRUDA (sin descartar ni normalizar
+                      luminosidad), es decir los colores tal como salieron, por
+                      mas inutilizables que sean.
+    Reusar el k-means hace que cada pasada extra sea practicamente gratis (solo se
+    rehace la seleccion)."""
     try:
         small = pygame.transform.smoothscale(surface, (SMALL, SMALL))
         arr = pygame.surfarray.array3d(small).reshape(-1, 3).astype(float)
@@ -153,5 +172,12 @@ def extract_palette(surface: pygame.Surface) -> list[tuple[int, int, int]] | Non
 
     lab = _rgb_to_oklab_np(arr)
     centers, counts = _kmeans(lab, 3, KMEANS_SEED, KMEANS_ITERS)
-    return (_select(centers, counts, GRAY_CHROMA)        # nivel 1: estricto
-            or _select(centers, counts, RELAXED_CHROMA))  # nivel 2: permisivo
+    result = None
+    if strict:
+        result = _select(centers, counts, GRAY_CHROMA)        # nivel 1: estricto
+    if result is None and relaxed:
+        result = _select(centers, counts, RELAXED_CHROMA)     # nivel 2: permisivo
+    if result is None and not default_fallback:
+        # Nivel 3: sin red de los defaults -> lo que sea que se extrajo, crudo.
+        result = _select(centers, counts, 0.0, discard=False, normalize=False)
+    return result
