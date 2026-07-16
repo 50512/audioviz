@@ -26,8 +26,19 @@ APP_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "au
 CONFIG_PATH = os.path.join(APP_DIR, "config.json")
 
 # Fuentes de audio validas (para sanear un archivo corrupto o editado a mano).
+# fb2k es una fuente de nicho: levanta su PROPIO servidor WebSocket y, si el
+# puerto ya esta ocupado, su arranque bloquea y da un tiron. Por eso no se ofrece
+# ni entra en el fallback automatico salvo que el usuario la habilite; sigue
+# siendo un valor persistible valido (available_sources decide su visibilidad).
 SOURCES = ("loopback", "fb2k", "mic", "tone")
 DISTRIBUTIONS = ("log", "octaves")
+
+
+def available_sources(fb2k_enabled: bool) -> list[str]:
+    """Fuentes ofrecidas en la UI y los atajos, en el orden de SOURCES. fb2k solo
+    aparece si esta habilitada; el resto siempre. Unica fuente de verdad del
+    listado (la comparten el panel y el mapa de teclas del visualizador)."""
+    return [s for s in SOURCES if s != "fb2k" or fb2k_enabled]
 
 # Host por defecto de los servicios de metadata/caratula (IP o hostname). El
 # puerto y las rutas son fijos (formato de la API); ver build_urls en visualizer.
@@ -38,6 +49,7 @@ DEFAULT_HOST = "127.0.0.1"
 # nombres coinciden con los `dest` de argparse (asi el merge es directo).
 DEFAULTS: dict = {
     "source": "loopback",
+    "fb2k_enabled": False,
     "attack_ms": 20.0,
     "decay_ms": 250.0,
     "distribution": "log",
@@ -102,12 +114,18 @@ def sanitize(eff: dict) -> None:
         eff["source"] = DEFAULTS["source"]
     if eff.get("distribution") not in DISTRIBUTIONS:
         eff["distribution"] = DEFAULTS["distribution"]
+    # Estar en fb2k implica tenerla habilitada: no se puede haber seleccionado sin
+    # habilitarla antes, asi que un archivo con source=fb2k la reactiva sola (y
+    # esto mismo hace que --source fb2k la habilite de forma implicita).
+    if eff.get("source") == "fb2k":
+        eff["fb2k_enabled"] = True
 
 
 def snapshot(view, engine) -> dict:
     """Estado vivo actual como dict serializable, listo para save()."""
     return {
         "source": engine.source_name,
+        "fb2k_enabled": engine.fb2k_enabled,
         "attack_ms": engine.attack_ms,
         "decay_ms": engine.decay_ms,
         "distribution": engine.distribution,

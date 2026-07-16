@@ -59,14 +59,6 @@ def make_source(name: str, **kw) -> AudioSource:
 SOURCE_ORDER = ["loopback", "fb2k", "mic", "tone"]
 
 
-def _fallback_chain(name: str) -> list[str]:
-    """La fuente pedida seguida de las que quedan en SOURCE_ORDER, hasta 'tone'.
-    Una fuente fuera de la lista se prueba sola y luego cae a 'tone'."""
-    if name in SOURCE_ORDER:
-        return SOURCE_ORDER[SOURCE_ORDER.index(name):]
-    return [name, "tone"]
-
-
 class Engine:
     def __init__(self, source: str = "loopback", fps: float = 60.0,
                  attack_ms: float = 20.0, decay_ms: float = 300.0,
@@ -74,7 +66,11 @@ class Engine:
                  distribution: str = "log", note_lo: str = "C0",
                  note_hi: str = "F#10", bands_per_octave: int = 12,
                  tuning: float = 440.0, transpose: int = 0,
-                 bandwidth: float = 0.5) -> None:
+                 bandwidth: float = 0.5, fb2k_enabled: bool = False) -> None:
+        # fb2k es nicho y levanta su propio servidor WebSocket: solo participa del
+        # fallback automatico (y del listado de la GUI) si esta habilitada. Se fija
+        # ANTES de set_source para que el arranque ya respete el gate.
+        self._fb2k_enabled = bool(fb2k_enabled)
         self._fps = fps
         self._attack_ms = attack_ms
         self._decay_ms = decay_ms
@@ -215,6 +211,29 @@ class Engine:
     def source_name(self) -> str:
         return self._source_name
 
+    @property
+    def fb2k_enabled(self) -> bool:
+        return self._fb2k_enabled
+
+    @fb2k_enabled.setter
+    def fb2k_enabled(self, v: bool) -> None:
+        # Solo afecta a los proximos cambios de fuente (fallback y listado); no
+        # arranca ni detiene la fuente actual. La GUI, al apagarlo con fb2k activa,
+        # cambia de fuente por su cuenta.
+        self._fb2k_enabled = bool(v)
+
+    def _fallback_chain(self, name: str) -> list[str]:
+        """La fuente pedida seguida de las que quedan en SOURCE_ORDER, hasta 'tone'.
+        fb2k queda FUERA del fallback automatico salvo que este habilitada (no
+        queremos invadir su socket sin que el usuario lo pida). Una fuente pedida
+        explicitamente que no este en la cadena se prueba sola y cae a 'tone': asi
+        set_source('fb2k') se honra aunque el gate este apagado (es intencion
+        explicita), pero un fallo de loopback nunca deriva a fb2k por su cuenta."""
+        order = [s for s in SOURCE_ORDER if s != "fb2k" or self._fb2k_enabled]
+        if name in order:
+            return order[order.index(name):]
+        return [name, "tone"]
+
     def set_source(self, name: str, **kw) -> None:
         """Cambia de fuente en caliente. Si la pedida no arranca, cae a la
         siguiente de SOURCE_ORDER, y asi hasta 'tone' (fallback definitivo). Si
@@ -224,7 +243,7 @@ class Engine:
         un cambio que falla por completo no corta el audio que ya estaba sonando.
         Los kw solo se pasan a la fuente PEDIDA; los fallbacks arrancan por defecto
         (sus parametros pueden no aplicar a otra fuente)."""
-        chain = _fallback_chain(name)
+        chain = self._fallback_chain(name)
         for i, candidate in enumerate(chain):
             src = None
             try:

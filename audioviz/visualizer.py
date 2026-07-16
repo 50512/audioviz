@@ -454,6 +454,10 @@ def main() -> None:
     S = argparse.SUPPRESS
     ap = argparse.ArgumentParser()
     ap.add_argument("--source", default=S, choices=["loopback", "fb2k", "mic", "tone"])
+    ap.add_argument("--enable-fb2k", dest="fb2k_enabled", action="store_true", default=S,
+                     help="habilita foobar2000 (fb2k) como fuente. Es de nicho y "
+                          "levanta su propio servidor WebSocket, por eso queda oculta "
+                          "por defecto; --source fb2k tambien la habilita")
     ap.add_argument("--attack-ms", dest="attack_ms", type=float, default=S)
     ap.add_argument("--decay-ms", dest="decay_ms", type=float, default=S)
     ap.add_argument("--bands", dest="n_bands", type=int, default=S, help="solo para --dist log")
@@ -522,7 +526,7 @@ def main() -> None:
                     decay_ms=eff["decay_ms"], n_bands=eff["n_bands"],
                     distribution=eff["distribution"], note_lo=eff["note_lo"],
                     note_hi=eff["note_hi"], bands_per_octave=eff["bands_per_octave"],
-                    tuning=eff["tuning"])
+                    tuning=eff["tuning"], fb2k_enabled=eff["fb2k_enabled"])
 
     # Parpadeo rojo del nombre de la fuente cuando el motor cae a un fallback.
     # arm_source_flash marca hasta cuando dura el aviso; on_fallback lo dispara
@@ -769,11 +773,18 @@ def main() -> None:
                 if ev.key == pygame.K_ESCAPE:
                     running = False
                 elif ev.key in keymap:
-                    try:
-                        engine.set_source(keymap[ev.key])   # hot-swap
-                        persist_config()                    # guarda la fuente elegida
-                    except Exception as exc:
-                        print(f"no se pudo cambiar de fuente: {exc}")
+                    src_name = keymap[ev.key]
+                    # fb2k oculta = su tecla (2) queda inerte hasta habilitarla en
+                    # el panel: no la ofrecemos y no arrancamos su servidor por un
+                    # atajo. El resto de fuentes responden normal.
+                    if src_name == "fb2k" and not engine.fb2k_enabled:
+                        pass
+                    else:
+                        try:
+                            engine.set_source(src_name)     # hot-swap
+                            persist_config()                # guarda la fuente elegida
+                        except Exception as exc:
+                            print(f"no se pudo cambiar de fuente: {exc}")
                 # Parametros vivos: escribir la propiedad reconfigura el motor.
                 elif ev.key == pygame.K_q:
                     engine.attack_ms = max(1.0, engine.attack_ms - 5)

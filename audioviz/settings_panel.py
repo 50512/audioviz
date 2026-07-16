@@ -18,6 +18,7 @@ from typing import Callable
 
 import pygame
 
+from . import config
 from .analysis import NOTES, parse_note
 from .visualizations.base import SliderSetting, StepperSetting, ToggleSetting
 
@@ -116,13 +117,26 @@ class Slider:
 
 class Stepper:
     """[<]  valor  [>]  para elegir entre opciones discretas ciclando. Encaja
-    donde una lista desplegable no cabria (fuente, distribucion, vista)."""
+    donde una lista desplegable no cabria (fuente, distribucion, vista).
+
+    values/labels pueden ser una lista fija o un callable que la devuelve: la
+    fuente, por ejemplo, cambia su set de opciones en vivo (fb2k aparece o no
+    segun el toggle), asi que se recalcula en cada uso en lugar de congelarse."""
 
     def __init__(self, get, setter, values, labels=None):
         self.get, self.set = get, setter
-        self.values = list(values)
-        self.labels = list(labels) if labels else [str(v) for v in values]
+        self._values = values
+        self._labels = labels
         self.rect = pygame.Rect(0, 0, 0, 0)
+
+    def _opts(self):
+        """(valores, etiquetas) actuales. Resuelve los callables al vuelo."""
+        vals = list(self._values() if callable(self._values) else self._values)
+        if self._labels is None:
+            labels = [str(v) for v in vals]
+        else:
+            labels = list(self._labels() if callable(self._labels) else self._labels)
+        return vals, labels
 
     def _btns(self):
         r = self.rect
@@ -130,9 +144,9 @@ class Stepper:
         right = pygame.Rect(r.right - 24, r.centery - 12, 24, 24)
         return left, right
 
-    def _index(self) -> int:
+    def _index(self, values) -> int:
         try:
-            return self.values.index(self.get())
+            return values.index(self.get())
         except ValueError:
             return 0
 
@@ -140,24 +154,28 @@ class Stepper:
         if ev.type != pygame.MOUSEBUTTONDOWN or ev.button != 1:
             return False
         left, right = self._btns()
-        n = len(self.values)
+        values, _ = self._opts()
+        n = len(values)
+        if n == 0:
+            return False
         if left.collidepoint(ev.pos):
-            self.set(self.values[(self._index() - 1) % n])
+            self.set(values[(self._index(values) - 1) % n])
             return True
         if right.collidepoint(ev.pos):
-            self.set(self.values[(self._index() + 1) % n])
+            self.set(values[(self._index(values) + 1) % n])
             return True
         return False
 
     def draw(self, surf, font):
         left, right = self._btns()
+        values, labels = self._opts()
         mouse = pygame.mouse.get_pos()
         for r, glyph in ((left, "<"), (right, ">")):
             pygame.draw.rect(surf, BTN_HOVER if r.collidepoint(mouse) else BTN_BG,
                              r, border_radius=5)
             g = font.render(glyph, True, BTN_TEXT)
             surf.blit(g, (r.centerx - g.get_width() // 2, r.centery - g.get_height() // 2))
-        label = self.labels[self._index()]
+        label = labels[self._index(values)] if values else ""
         t = font.render(label, True, VALUE)
         mid = pygame.Rect(left.right, self.rect.y, right.left - left.right, self.rect.h)
         surf.blit(t, (mid.centerx - t.get_width() // 2, mid.centery - t.get_height() // 2))
@@ -266,8 +284,14 @@ class SettingsPanel:
         # note_lo/hi viajan como texto ('C0'); el slider trabaja en MIDI y
         # convierte al vuelo. parse_note('C0')=12, parse_note('F#10')=138.
         audio = [
+            # La lista de fuentes se recalcula en vivo: fb2k solo figura si el
+            # toggle de abajo esta encendido (available_sources decide).
             _Row("fuente", Stepper(lambda: eng.source_name, self._set_source,
-                                   ["loopback", "fb2k", "mic", "tone"])),
+                                   lambda: config.available_sources(eng.fb2k_enabled))),
+            # fb2k es nicho (levanta su propio servidor WebSocket): oculta por
+            # defecto. Encenderlo la agrega a la lista de arriba; apagarlo estando
+            # en fb2k devuelve la fuente al default (ver _set_allow_fb2k).
+            _Row("habilitar fb2k", Toggle(lambda: eng.fb2k_enabled, self._set_allow_fb2k)),
             _Row("attack", Slider(lambda: eng.attack_ms,
                                   lambda v: setattr(eng, "attack_ms", v),
                                   1, 500, step=1, fmt=lambda v: f"{int(v)} ms")),
@@ -380,6 +404,16 @@ class SettingsPanel:
             self._on_source_change()       # persiste la fuente sin esperar al cierre
         except Exception as exc:
             print(f"no se pudo cambiar de fuente: {exc}")
+
+    def _set_allow_fb2k(self, on: bool) -> None:
+        self.engine.fb2k_enabled = on
+        # Si se apaga con fb2k como fuente activa, ya no esta en la lista ofrecida:
+        # la sacamos de encima volviendo al default (esto tambien persiste). En
+        # cualquier otro caso basta con guardar el flag al instante.
+        if not on and self.engine.source_name == "fb2k":
+            self._set_source(config.DEFAULTS["source"])
+        else:
+            self._on_source_change()
 
     def _visible_rows(self):
         """Filas visibles de la pestana activa."""
