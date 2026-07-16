@@ -33,6 +33,13 @@ CONFIG_PATH = os.path.join(APP_DIR, "config.json")
 SOURCES = ("loopback", "fb2k", "mic", "tone")
 DISTRIBUTIONS = ("log", "octaves")
 
+# Claves que tienen esquema (default en DEFAULTS y se fusionan en eff) pero que
+# NO se persisten: cada arranque las toma de su default, nunca del archivo. El
+# modo frameless-windowed es una preferencia efimera de sesion, no de
+# instalacion: no se guarda al cerrar (ver snapshot) ni se lee de un archivo
+# viejo (ver load, que las descarta al cargar).
+NON_PERSISTENT = ("frameless",)
+
 
 def available_sources(fb2k_enabled: bool) -> list[str]:
     """Fuentes ofrecidas en la UI y los atajos, en el orden de SOURCES. fb2k solo
@@ -83,6 +90,8 @@ DEFAULTS: dict = {
     "hud_fps": True,
     "thumb_mode": 0,
     "fullscreen_display": 0,
+    # frameless: default de sesion, NO persistente (ver NON_PERSISTENT). Vive
+    # aca solo para que el merge le de un valor inicial a eff en cada arranque.
     "frameless": False,
     "always_on_top": False,
     "palette_strict": True,
@@ -98,7 +107,13 @@ def load() -> dict:
     try:
         with open(CONFIG_PATH, encoding="utf-8") as f:
             data = json.load(f)
-        return data if isinstance(data, dict) else {}
+        if not isinstance(data, dict):
+            return {}
+        # Descarta claves no persistentes que pudieran venir de un archivo
+        # guardado por una version anterior: siempre arrancan desde su default.
+        for key in NON_PERSISTENT:
+            data.pop(key, None)
+        return data
     except (OSError, ValueError):
         return {}
 
@@ -167,7 +182,7 @@ def snapshot(view, engine) -> dict:
         "hud_fps": view.hud_fps,
         "thumb_mode": view.thumb_mode,
         "fullscreen_display": view.fullscreen_display,
-        "frameless": view.frameless,
+        # frameless no se guarda: es preferencia de sesion (ver NON_PERSISTENT).
         "always_on_top": view.always_on_top,
         "palette_strict": view.palette_strict,
         "palette_relaxed": view.palette_relaxed,
