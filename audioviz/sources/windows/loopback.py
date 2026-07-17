@@ -1,31 +1,38 @@
-"""Fuente: microfono del dispositivo (captura de un input real, no loopback).
+"""Fuente: loopback de WASAPI (captura lo que suena en el sistema).
 
-    A diferencia de LoopbackSource (que espia la SALIDA del sistema), esta
-    fuente abre un dispositivo de ENTRADA normal -- el microfono por defecto,
-    o uno elegido por nombre. Util para visualizar voz, instrumentos en vivo,
-    o cualquier cosa que entre por line-in/microfono en vez de sonar por los
-    parlantes.
+    ADVERTENCIAS -- leelas antes de usar esto:
 
-    El sample_rate reportado es el del dispositivo (su "formato por defecto"),
-    igual que en LoopbackSource: Windows puede resamplear antes de entregarte
-    el stream.
+    1. El loopback SOLO existe en modo COMPARTIDO. Si foobar tiene el
+       dispositivo en WASAPI exclusivo o ASIO, el audio engine de Windows
+       esta fuera del camino y NO HAY NADA QUE CAPTURAR. Esta fuente y el
+       bit-perfect son mutuamente excluyentes.
 
-Requiere: pip install pyaudiowpatch   (funciona igual con PyAudio normal, pero
-reusamos pyaudiowpatch porque ya es dependencia de LoopbackSource y evita
-tener dos bindings de PortAudio distintos en el proyecto).
+    2. El sample_rate que reporta es el del ENDPOINT (el "formato
+       predeterminado" de Windows, tipicamente 48000 Hz), NO el del archivo.
+       Un FLAC de 44.1k aparecera aca como 48k, ya resampleado por el mixer.
+
+    3. Captura TODO el sistema: foobar, el navegador, Discord, los sonidos
+       de Windows. No solo tu musica.
+
+    Sirve para: visualizar cualquier cosa que suene, sin tocar foobar.
+    No sirve para: analizar la senal real que llega a tu DAC.
+
+Requiere: pip install pyaudiowpatch   (solo Windows)
 """
 
 from __future__ import annotations
 
 import numpy as np
 
-from .base import AudioSource, Frame, RingBuffer
+from ..base import AudioSource, Frame, RingBuffer
 
 
-class MicSource(AudioSource):
+class LoopbackSource(AudioSource):
     def __init__(self, window_ms: float = 100.0, device_name: str | None = None) -> None:
-        # Misma logica de ventana que LoopbackSource: duracion fija, no frames
-        # fijos, para que attack/decay se comporten igual entre fuentes.
+        # En MILISEGUNDOS, no en frames. Asi coincide con foo_uie_webview, que usa
+        # 100 ms por defecto. Si las dos fuentes usaran ventanas de distinta
+        # DURACION, el suavizado implicito (por solape) seria distinto y tus
+        # ajustes de attack/decay no transferirian entre fuentes.
         self.window_ms = window_ms
         self.window = 0          # frames; se deriva del sample rate real en start()
         self.device_name = device_name
@@ -40,21 +47,22 @@ class MicSource(AudioSource):
 
         self._pa = pyaudio.PyAudio()
 
+        # El dispositivo de loopback es el "espejo" del endpoint de salida.
         if self.device_name:
             device = next(
-                self._pa.get_device_info_by_index(i)
-                for i in range(self._pa.get_device_count())
-                if self.device_name.lower() in self._pa.get_device_info_by_index(i)["name"].lower()
-                and self._pa.get_device_info_by_index(i)["maxInputChannels"] > 0
+                d for d in self._pa.get_loopback_device_info_generator()
+                if self.device_name.lower() in d["name"].lower()
             )
         else:
-            device = self._pa.get_default_input_device_info()
+            speakers = self._pa.get_default_wasapi_loopback()
+            device = speakers
 
         self.sample_rate = int(device["defaultSampleRate"])
-        self.channels = int(device["maxInputChannels"]) or 1
+        self.channels = int(device["maxInputChannels"])
 
-        # Ver comentario equivalente en LoopbackSource: la DURACION es lo
-        # invariante, no el numero de frames.
+        # La ventana en frames se deriva del rate REAL del endpoint. A 48 kHz,
+        # 100 ms = 4800 frames; a 44.1 kHz, 4410. La DURACION es lo invariante,
+        # igual que en foobar -> Δf sale 1/0.1s = 10 Hz en ambos casos.
         self.window = max(64, int(self.sample_rate * self.window_ms / 1000.0))
 
         # Capacidad: 4 ventanas. Absorbe jitter del scheduler sin gastar memoria.
@@ -81,6 +89,8 @@ class MicSource(AudioSource):
     def read(self) -> Frame | None:
         if self._ring is None:
             return None
+        # El ring convierte bloques contiguos en la ventana deslizante que el
+        # visualizador espera -- misma semantica que entrega foobar.
         audio = self._ring.read_last(self.window)
         if audio is None:
             return None

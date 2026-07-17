@@ -18,7 +18,7 @@ import numpy as np
 
 from .analysis import (DB_CEIL, DB_FLOOR, Smoother, bands_from_edges,
                        log_edges, octave_bands, spectra)
-from .sources import AudioSource
+from .sources import AudioSource, available_sources
 
 
 @dataclass(frozen=True)
@@ -52,11 +52,12 @@ def make_source(name: str, **kw) -> AudioSource:
     raise ValueError(f"fuente desconocida: {name!r}")
 
 
-# Orden de fallback entre fuentes. Si la pedida no arranca (dispositivo
-# inaccesible, endpoint en modo exclusivo, puerto ocupado...), se prueba la
-# siguiente, y asi hasta 'tone': el fallback definitivo, siempre disponible
-# (es sintetico, no depende de hardware ni de la red).
-SOURCE_ORDER = ["loopback", "fb2k", "mic", "tone"]
+# Orden de fallback entre fuentes, filtrado por el SO actual: las fuentes de otro
+# SO ni se intentan (en Linux no hay loopback/mic WASAPI que probar). Si la pedida
+# no arranca (dispositivo inaccesible, endpoint en modo exclusivo, puerto
+# ocupado...), se prueba la siguiente, y asi hasta 'tone': el fallback definitivo,
+# siempre disponible en cualquier SO (es sintetico, no depende de hardware ni red).
+SOURCE_ORDER = available_sources()
 
 
 class Engine:

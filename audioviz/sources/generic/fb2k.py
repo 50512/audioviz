@@ -23,7 +23,7 @@ import threading
 import numpy as np
 import websockets
 
-from .base import AudioSource, Frame, LatestSlot
+from ..base import AudioSource, Frame, LatestSlot
 
 HEADER = struct.Struct("<IHH")  # 8 bytes
 

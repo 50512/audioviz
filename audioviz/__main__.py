@@ -14,7 +14,7 @@ import argparse
 import time
 
 from .analysis import Smoother, bands, spectra, to_glyphs
-from .sources import AudioSource
+from .sources import AudioSource, available_sources
 
 
 def build_source(name: str) -> AudioSource:
@@ -35,7 +35,8 @@ def build_source(name: str) -> AudioSource:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--source", default="loopback", choices=["loopback", "fb2k", "mic", "tone"])
+    # Solo las fuentes compatibles con este SO (Windows+Generic o Linux+Generic).
+    ap.add_argument("--source", default="loopback", choices=available_sources())
     ap.add_argument("--fps", type=float, default=30.0)
     ap.add_argument("--attack-ms", type=float, default=20.0,
                     help="subida: bajo = transientes veraces")

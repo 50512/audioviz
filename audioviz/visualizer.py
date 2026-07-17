@@ -7,8 +7,11 @@ WASAPI, FFT ni ventanas de Hann. Solo pide frames y dibuja.
 
 Teclas:
     1 / 2 / 3 / 4   fuente: loopback / fb2k / mic / tone   (hot-swap, sin reiniciar)
-                    fb2k (tecla 2) es de nicho y esta oculta por defecto: hay que
-                    habilitarla en el panel (TAB) o con --enable-fb2k
+                    Solo se ofrecen las fuentes compatibles con tu SO: loopback y
+                    mic son de Windows, asi que en Linux esas teclas quedan inertes
+                    (solo fb2k y tone). fb2k (tecla 2) es ademas de nicho y esta
+                    oculta por defecto: habilitala en el panel (TAB) o con
+                    --enable-fb2k
     Q / A       attack  -/+
     W / S       decay   -/+
     M           metadata (now playing) on/off
@@ -38,6 +41,7 @@ import pygame.freetype
 from . import config
 from .engine import Engine
 from .metadata import MetadataMonitor
+from .sources import is_available
 from .settings_panel import SettingsPanel
 from .thumbnail import NO_ART, ThumbnailMonitor
 from .visualizations import RenderContext, build_visualizations
@@ -476,7 +480,10 @@ def main() -> None:
     # El `dest` de cada uno coincide con la clave del esquema en config.py.
     S = argparse.SUPPRESS
     ap = argparse.ArgumentParser()
-    ap.add_argument("--source", default=S, choices=["loopback", "fb2k", "mic", "tone"])
+    # Solo se pueden pedir fuentes compatibles con este SO (Windows+Generic o
+    # Linux+Generic). available_sources(True) las lista incluyendo fb2k (pedirla
+    # por --source la habilita); el resto del gate de fb2k no aplica al flag.
+    ap.add_argument("--source", default=S, choices=config.available_sources(True))
     ap.add_argument("--enable-fb2k", dest="fb2k_enabled", action="store_true", default=S,
                      help="habilita foobar2000 (fb2k) como fuente. Es de nicho y "
                           "levanta su propio servidor WebSocket, por eso queda oculta "
@@ -658,7 +665,12 @@ def main() -> None:
 
     applied_palette_flags = palette_flags()   # flags con los que se extrajo la paleta
 
-    keymap = {pygame.K_1: "loopback", pygame.K_2: "fb2k", pygame.K_3: "mic", pygame.K_4: "tone"}
+    # Tecla fija por fuente (1/2/3/4). Solo se mapean las compatibles con este SO:
+    # en Linux las teclas de loopback/mic quedan inertes (no existen esas fuentes).
+    # fb2k (tecla 2) ademas esta gateada por su toggle (ver mas abajo).
+    SOURCE_KEYS = [(pygame.K_1, "1", "loopback"), (pygame.K_2, "2", "fb2k"),
+                   (pygame.K_3, "3", "mic"), (pygame.K_4, "4", "tone")]
+    keymap = {key: name for key, _, name in SOURCE_KEYS if is_available(name)}
     running = True
     elapsed = 0.0
 
@@ -1010,9 +1022,11 @@ def main() -> None:
                 screen.blit(font.render(rest, True, TEXT), (x, hud_y))
             hud_y += 18
         if view.show_keybinds:
-            # Teclas de fuente en el hint: 1/2/3/4 con fb2k habilitada (2=fb2k), o
-            # 1/3/4 sin ella (su tecla queda inerte, no la anunciamos).
-            src_keys = "1/2/3/4" if engine.fb2k_enabled else "1/3/4"
+            # Teclas de fuente en el hint: solo las mapeadas en este SO (keymap) y,
+            # de esas, fb2k solo si esta habilitada (su tecla queda inerte si no).
+            # En Windows con fb2k: 1/2/3/4; sin ella: 1/3/4. En Linux: 2/4 o 4.
+            src_keys = "/".join(lbl for key, lbl, name in SOURCE_KEYS
+                                if key in keymap and (name != "fb2k" or engine.fb2k_enabled))
             screen.blit(font.render(f"{src_keys} fuente   Q/A attack   W/S decay   M metadata   C vista   T on-top   F11 pantalla completa   TAB config   ESC salir",
                                     True, GRID), (16, hud_y))
         panel.draw(screen)   # modal encima de todo, si esta abierto

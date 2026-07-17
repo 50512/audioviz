@@ -11,7 +11,7 @@ import time
 
 import numpy as np
 
-from .base import AudioSource, Frame, LatestSlot
+from ..base import AudioSource, Frame, LatestSlot
 
 
 class ToneSource(AudioSource):

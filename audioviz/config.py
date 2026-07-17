@@ -17,6 +17,8 @@ from __future__ import annotations
 import json
 import os
 
+from .sources import SOURCE_PLATFORMS
+from .sources import available_sources as platform_sources
 from .visualizations.bars import (DEFAULT_BARS_COVER_2, DEFAULT_BARS_GRADIENT,
                                   DEFAULT_BARS_SCOPE)
 from .visualizations.circle_bars import DEFAULT_CENTER, DEFAULT_RADIUS_MULT
@@ -26,11 +28,13 @@ APP_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "au
 CONFIG_PATH = os.path.join(APP_DIR, "config.json")
 
 # Fuentes de audio validas (para sanear un archivo corrupto o editado a mano).
-# fb2k es una fuente de nicho: levanta su PROPIO servidor WebSocket y, si el
-# puerto ya esta ocupado, su arranque bloquea y da un tiron. Por eso no se ofrece
-# ni entra en el fallback automatico salvo que el usuario la habilite; sigue
-# siendo un valor persistible valido (available_sources decide su visibilidad).
-SOURCES = ("loopback", "fb2k", "mic", "tone")
+# Sale del registro de sources: TODOS los nombres conocidos, de cualquier SO. Un
+# archivo puede traer una fuente de otro SO (config compartida, o el equipo
+# cambio de plataforma) y sigue siendo un valor persistible valido; que se pueda
+# usar aca lo decide available_sources (por SO) y, en ultima instancia, el
+# fallback del motor. fb2k es de nicho: levanta su PROPIO servidor WebSocket y no
+# se ofrece salvo que el usuario la habilite (ver available_sources).
+SOURCES = tuple(SOURCE_PLATFORMS)
 DISTRIBUTIONS = ("log", "octaves")
 
 # Claves que tienen esquema (default en DEFAULTS y se fusionan en eff) pero que
@@ -42,10 +46,12 @@ NON_PERSISTENT = ("frameless",)
 
 
 def available_sources(fb2k_enabled: bool) -> list[str]:
-    """Fuentes ofrecidas en la UI y los atajos, en el orden de SOURCES. fb2k solo
-    aparece si esta habilitada; el resto siempre. Unica fuente de verdad del
+    """Fuentes ofrecidas en la UI y los atajos, en orden canonico. Se filtran por
+    dos criterios: (1) compatibilidad con el SO actual -- Windows ve Windows+
+    Generic, Linux ve Linux+Generic (lo decide el registro de sources); (2) el
+    gate de fb2k, que solo aparece si esta habilitada. Unica fuente de verdad del
     listado (la comparten el panel y el mapa de teclas del visualizador)."""
-    return [s for s in SOURCES if s != "fb2k" or fb2k_enabled]
+    return [s for s in platform_sources() if s != "fb2k" or fb2k_enabled]
 
 # Host por defecto de los servicios de metadata/caratula (IP o hostname). El
 # puerto y las rutas son fijos (formato de la API); ver build_urls en visualizer.
