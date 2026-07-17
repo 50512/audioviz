@@ -232,8 +232,17 @@ class Engine:
         explicita), pero un fallo de loopback nunca deriva a fb2k por su cuenta."""
         order = [s for s in SOURCE_ORDER if s != "fb2k" or self._fb2k_enabled]
         if name in order:
-            return order[order.index(name):]
-        return [name, "tone"]
+            chain = order[order.index(name):]
+        else:
+            chain = [name, "tone"]
+        # La fuente activa NO se suelta hasta que un cambio triunfe (para no cortar
+        # el audio si todo falla), asi que sigue con su recurso tomado. Reinstanciarla
+        # como fallback chocaria con ese recurso: el caso claro es fb2k, cuyo servidor
+        # WebSocket ocupa un puerto que un segundo Fb2kSource no podria volver a abrir
+        # (y su start() no lo detectaria, dejando una fuente muerta). La quitamos de
+        # los fallbacks; la fuente PEDIDA (el head de la cadena) se respeta siempre.
+        return [c for i, c in enumerate(chain)
+                if i == 0 or c != self._source_name]
 
     def set_source(self, name: str, **kw) -> None:
         """Cambia de fuente en caliente. Si la pedida no arranca, cae a la
