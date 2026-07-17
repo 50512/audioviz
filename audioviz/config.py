@@ -22,7 +22,7 @@ from .sources import available_sources as platform_sources
 from .visualizations.bars import (DEFAULT_BARS_COVER_2, DEFAULT_BARS_GRADIENT,
                                   DEFAULT_BARS_SCOPE)
 from .visualizations.circle_bars import DEFAULT_CENTER, DEFAULT_RADIUS_MULT
-from .visualizations.gradient import DEFAULT_GRADIENT
+from .visualizations.gradient import DEFAULT_GRADIENT, GRADIENT_MODES
 
 APP_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "audioviz")
 CONFIG_PATH = os.path.join(APP_DIR, "config.json")
@@ -57,6 +57,16 @@ def available_sources(fb2k_enabled: bool) -> list[str]:
 # puerto y las rutas son fijos (formato de la API); ver build_urls en visualizer.
 DEFAULT_HOST = "127.0.0.1"
 
+# Colores base del modo normal (no extraido de la caratula). color_lo tine el
+# grave/canal izquierdo y color_hi el agudo/canal derecho: son los dos extremos
+# del degradado. color_mid es un tercer color OPCIONAL (punto medio del
+# degradado), analogo a cuando la caratula aporta 3 colores predominantes. Los
+# dos primeros son el celeste y rojo historicos (CH_COLORS); el medio es un
+# violeta que cae en el arco frio (cyan->azul->magenta->rojo) entre ambos.
+DEFAULT_COLOR_LO = (90, 200, 250)
+DEFAULT_COLOR_HI = (250, 130, 110)
+DEFAULT_COLOR_MID = (185, 125, 230)
+
 # Esquema: clave canonica -> valor por defecto. Estas claves son las que se
 # persisten y las que el visualizador fusiona con el archivo y los flags. Los
 # nombres coinciden con los `dest` de argparse (asi el merge es directo).
@@ -85,6 +95,19 @@ DEFAULTS: dict = {
     "circle_use_cover": False,
     "bars_cover_2col": DEFAULT_BARS_COVER_2,
     "circle_symmetric": False,
+    # Colores base del modo normal (los persiste como listas [r,g,b]). El 3er
+    # color solo se usa si color_use_mid esta activo Y la visualizacion esta en
+    # degradado (las barras pueden estar en solido; ver bars/circle_bars).
+    # colors_gradient_mode es el modo del degradado de la barra de PREVIEW de la
+    # pestana de colores; cada visualizacion sigue eligiendo el suyo aparte.
+    "color_lo": list(DEFAULT_COLOR_LO),
+    "color_hi": list(DEFAULT_COLOR_HI),
+    "color_mid": list(DEFAULT_COLOR_MID),
+    "color_use_mid": False,
+    "colors_gradient_mode": DEFAULT_GRADIENT,
+    # Por visualizacion: usar los colores personalizados como fallback (ver arriba).
+    "bars_use_custom": False,
+    "circle_use_custom": False,
     "host": DEFAULT_HOST,
     "show_metadata": True,
     # HUD de datos (esquina sup. izq.): interruptor maestro + que valores muestra.
@@ -140,6 +163,20 @@ def save(cfg: dict) -> None:
         pass
 
 
+def _coerce_rgb(value, default: tuple) -> tuple:
+    """Convierte un color guardado ([r,g,b] de un JSON, o una tupla) a una tupla
+    de 3 enteros 0-255. Cae al default si viene malformado (archivo editado a
+    mano). Devolver SIEMPRE una tupla importa: las visualizaciones distinguen un
+    color solido de un array por-banda con isinstance(x, tuple)."""
+    try:
+        t = tuple(int(round(float(x))) for x in value)
+    except (TypeError, ValueError):
+        return default
+    if len(t) != 3:
+        return default
+    return tuple(max(0, min(255, x)) for x in t)
+
+
 def sanitize(eff: dict) -> None:
     """Corrige in-place los valores enum que, si vinieran invalidos de un archivo
     editado a mano, harian fallar la construccion del motor. El resto degrada
@@ -148,6 +185,12 @@ def sanitize(eff: dict) -> None:
         eff["source"] = DEFAULTS["source"]
     if eff.get("distribution") not in DISTRIBUTIONS:
         eff["distribution"] = DEFAULTS["distribution"]
+    # Colores base -> tupla de 3 enteros (o su default). Ver _coerce_rgb.
+    for key, default in (("color_lo", DEFAULT_COLOR_LO), ("color_hi", DEFAULT_COLOR_HI),
+                         ("color_mid", DEFAULT_COLOR_MID)):
+        eff[key] = _coerce_rgb(eff.get(key), default)
+    if eff.get("colors_gradient_mode") not in GRADIENT_MODES:
+        eff["colors_gradient_mode"] = DEFAULTS["colors_gradient_mode"]
     # Estar en fb2k implica tenerla habilitada: no se puede haber seleccionado sin
     # habilitarla antes, asi que un archivo con source=fb2k la reactiva sola (y
     # esto mismo hace que --source fb2k la habilite de forma implicita).
@@ -180,6 +223,13 @@ def snapshot(view, engine) -> dict:
         "circle_use_cover": view.circle_use_cover,
         "bars_cover_2col": view.bars_cover_2col,
         "circle_symmetric": view.circle_symmetric,
+        "color_lo": list(view.color_lo),
+        "color_hi": list(view.color_hi),
+        "color_mid": list(view.color_mid),
+        "color_use_mid": view.color_use_mid,
+        "colors_gradient_mode": view.colors_gradient_mode,
+        "bars_use_custom": view.bars_use_custom,
+        "circle_use_custom": view.circle_use_custom,
         "host": view.host,
         "show_metadata": view.show_metadata,
         "show_hud": view.show_hud,

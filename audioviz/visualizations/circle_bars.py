@@ -51,6 +51,7 @@ class CircleBarsVisualization(Visualization):
                           fmt=lambda v: f"{int(v)} %"),
             StepperSetting("degradado", "circle_gradient_mode",
                            GRADIENT_MODES, GRADIENT_LABELS),
+            ToggleSetting("personalizado", "circle_use_custom"),
             ToggleSetting("caratula", "circle_use_cover"),
             ToggleSetting("simetrico", "circle_symmetric"),
         ]
@@ -82,7 +83,15 @@ class CircleBarsVisualization(Visualization):
         if ctx.circle_use_cover and ctx.cover_palette:
             stops, mode = ctx.cover_palette, "oklch"
         else:
-            stops, mode = [ctx.colors[0], ctx.colors[1]], ctx.circle_gradient_mode
+            # Fallback (sin caratula util): paleta personalizada si el circulo la
+            # tiene activada, o los colores por defecto. El circulo siempre es un
+            # degradado, asi que el 3er color (medio, parte de lo personalizado) se
+            # usa siempre que este activado.
+            chan = ctx.custom_colors if ctx.circle_use_custom else ctx.colors
+            mid = ctx.custom_mid if ctx.circle_use_custom else None
+            stops, mode = [chan[0], chan[1]], ctx.circle_gradient_mode
+            if mid is not None:
+                stops = [chan[0], mid, chan[1]]
         grad = self._gradient(n, stops, mode)
         slot = 2.0 * math.pi / n
         half = slot * 0.5 * FILL                 # semiancho angular de cada barra

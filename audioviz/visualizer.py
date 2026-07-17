@@ -395,7 +395,12 @@ class ViewState:
                  vinyl_scale: float = 1.0, bars_gradient_mode: str = "solid",
                  bars_gradient_scope: str = "channel", bars_use_cover: bool = False,
                  circle_use_cover: bool = False, bars_cover_2col: str = "gradient",
-                 circle_symmetric: bool = False, host: str = "",
+                 circle_symmetric: bool = False,
+                 color_lo: tuple = (90, 200, 250), color_hi: tuple = (250, 130, 110),
+                 color_mid: tuple = (185, 125, 230), color_use_mid: bool = False,
+                 colors_gradient_mode: str = "rgb",
+                 bars_use_custom: bool = False, circle_use_custom: bool = False,
+                 host: str = "",
                  fullscreen_display: int = 0, palette_strict: bool = True,
                  palette_relaxed: bool = True, palette_default_fallback: bool = True,
                  frameless: bool = False, always_on_top: bool = False,
@@ -438,6 +443,22 @@ class ViewState:
         self.bars_cover_2col = bars_cover_2col
         # Circulo: color por posicion (simetrico, sin costura) en vez de por banda.
         self.circle_symmetric = circle_symmetric
+        # Colores base del modo normal (no caratula). color_lo/color_hi son los dos
+        # extremos del degradado (grave/L y agudo/R); son tuplas RGB. color_mid es
+        # un 3er color opcional (punto medio) que solo aplica con color_use_mid y en
+        # modo degradado (en barras solidas no; el circulo siempre es degradado).
+        # colors_gradient_mode es el modo del degradado de la barra de PREVIEW de la
+        # pestana de colores; no toca el modo que elige cada visualizacion.
+        self.color_lo = color_lo
+        self.color_hi = color_hi
+        self.color_mid = color_mid
+        self.color_use_mid = color_use_mid
+        self.colors_gradient_mode = colors_gradient_mode
+        # Por visualizacion: si su fallback (cuando la caratula no aporta) usa los
+        # colores personalizados en vez de los de por defecto. La caratula, si esta
+        # activa y da colores utiles, siempre manda sobre ambos.
+        self.bars_use_custom = bars_use_custom
+        self.circle_use_custom = circle_use_custom
         # Host (IP/hostname) de los servicios de metadata/caratula. Editable en el
         # panel; el visualizador reconstruye los monitores cuando cambia.
         self.host = host
@@ -616,6 +637,12 @@ def main() -> None:
                      circle_use_cover=bool(eff["circle_use_cover"]),
                      bars_cover_2col=eff["bars_cover_2col"],
                      circle_symmetric=bool(eff["circle_symmetric"]),
+                     color_lo=tuple(eff["color_lo"]), color_hi=tuple(eff["color_hi"]),
+                     color_mid=tuple(eff["color_mid"]),
+                     color_use_mid=bool(eff["color_use_mid"]),
+                     colors_gradient_mode=eff["colors_gradient_mode"],
+                     bars_use_custom=bool(eff["bars_use_custom"]),
+                     circle_use_custom=bool(eff["circle_use_custom"]),
                      host=str(eff["host"]),
                      fullscreen_display=int(eff["fullscreen_display"]),
                      palette_strict=bool(eff["palette_strict"]),
@@ -920,6 +947,12 @@ def main() -> None:
             # visualizaciones (p.ej. el circulo) se ubiquen respecto al disco,
             # este visible o no. Misma cuenta que usa el bloque del vinilo.
             disc_radius = thumb_box(w, h, view.vinyl_scale) * VINYL_ART_RATIO / 2.0
+            # Colores personalizados del usuario (grave/agudo + un 3er color medio
+            # opcional). Cada visualizacion decide si los usa como fallback (cuando
+            # la caratula no aporta), via su propio toggle. Los `colors` por defecto
+            # son los historicos por canal, para quien no active lo personalizado.
+            custom_colors = [view.color_lo, view.color_hi]
+            custom_mid = view.color_mid if view.color_use_mid else None
             ctx = RenderContext(width=w, height=h, header_h=header_h,
                                 max_height_frac=view.max_bar_height / 100.0,
                                 colors=CH_COLORS, grid_color=GRID,
@@ -931,8 +964,12 @@ def main() -> None:
                                 circle_gradient_mode=view.circle_gradient_mode,
                                 circle_symmetric=view.circle_symmetric,
                                 cover_palette=cover_palette,
+                                custom_colors=custom_colors,
+                                custom_mid=custom_mid,
                                 bars_use_cover=view.bars_use_cover,
                                 circle_use_cover=view.circle_use_cover,
+                                bars_use_custom=view.bars_use_custom,
+                                circle_use_custom=view.circle_use_custom,
                                 bars_cover_2col=view.bars_cover_2col)
             for viz in visualizations:
                 if view.enabled_viz.get(viz.id):

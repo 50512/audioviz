@@ -74,6 +74,7 @@ class BarsVisualization(Visualization):
                            BARS_GRADIENT_MODES, BARS_GRADIENT_LABELS),
             StepperSetting("aplicar", "bars_gradient_scope",
                            BARS_SCOPES, BARS_SCOPE_LABELS),
+            ToggleSetting("personalizado", "bars_use_custom"),
             ToggleSetting("caratula", "bars_use_cover"),
             StepperSetting("2 colores", "bars_cover_2col",
                            BARS_COVER_2, BARS_COVER_2_LABELS),
@@ -117,19 +118,28 @@ class BarsVisualization(Visualization):
             split = len(stops) == 2 and ctx.bars_cover_2col == "split"
             solid = len(stops) == 1 or split
         else:
-            stops = [ctx.colors[0], ctx.colors[1]]
+            # Fallback (sin caratula util): la paleta personalizada del usuario si
+            # esta barra la tiene activada, o los colores por defecto. El 3er color
+            # (medio) es parte de lo personalizado, asi que solo entra en ese caso y
+            # solo como punto medio del degradado (en solido cada canal es plano).
+            chan = ctx.custom_colors if ctx.bars_use_custom else ctx.colors
+            mid = ctx.custom_mid if ctx.bars_use_custom else None
+            stops = [chan[0], chan[1]]
             mode = ctx.bars_gradient_mode
             solid = mode == "solid"
+            if not solid and mid is not None:
+                stops = [chan[0], mid, chan[1]]
 
         row_col = None
         if solid:
             # Solido: color plano por canal. Con caratula, cada canal toma un color
             # de la paleta ciclando (stops[-1]==stops[0] si hay 1 solo, asi que ese
-            # unico color va a ambos canales); por defecto, izq celeste / der rojo.
+            # unico color va a ambos canales); si no, la fuente elegida (chan): izq
+            # grave / der agudo.
             if use_cover:
                 left_col, right_col = stops[0], stops[-1]
             else:
-                left_col, right_col = ctx.colors[0], ctx.colors[1]
+                left_col, right_col = chan[0], chan[1]
         else:
             left_col, right_col, row_col = self._bar_colors(
                 n, stops, mode, ctx.bars_gradient_scope)
@@ -163,8 +173,8 @@ class BarsVisualization(Visualization):
                 bottom = y + plot_h
                 if solid:
                     # caratula: cicla la paleta por canal (1 color -> siempre el
-                    # mismo); por defecto, un color de canal por fila.
-                    col = stops[c % len(stops)] if use_cover else ctx.colors[c % len(ctx.colors)]
+                    # mismo); si no, cicla la fuente elegida (chan) por fila.
+                    col = stops[c % len(stops)] if use_cover else chan[c % len(chan)]
                 else:
                     col = row_col
                 pygame.draw.line(surf, ctx.grid_color, (pad, bottom), (w - pad, bottom))

@@ -88,8 +88,12 @@ class RenderContext:
     circle_gradient_mode: str                   # modo de degradado del circulo (rgb/warm/cool/oklch)
     circle_symmetric: bool                      # circulo: color por posicion (simetrico, sin costura)
     cover_palette: "list[tuple[int, int, int]] | None"  # 1..3 colores de la caratula (o None)
+    custom_colors: Sequence[tuple[int, int, int]]       # [grave, agudo]: colores personalizados del usuario
+    custom_mid: "tuple[int, int, int] | None"           # 3er color personalizado (punto medio del degradado), o None
     bars_use_cover: bool                        # las barras usan la paleta de la caratula
     circle_use_cover: bool                      # el circulo usa la paleta de la caratula
+    bars_use_custom: bool                       # fallback de las barras: colores personalizados en vez de los de por defecto
+    circle_use_custom: bool                     # fallback del circulo: colores personalizados en vez de los de por defecto
     bars_cover_2col: str                        # caratula 2 colores en barras: gradient/split (uno por canal)
 
 
