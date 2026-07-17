@@ -828,6 +828,11 @@ def main() -> None:
                     # atajo. El resto de fuentes responden normal.
                     if src_name == "fb2k" and not engine.fb2k_enabled:
                         pass
+                    # La tecla del modo actual es inerte: re-pedir la misma fuente
+                    # recrearia el recurso (p.ej. el websocket de fb2k) sin soltar
+                    # el anterior, provocando conflicto y bloqueo momentaneo.
+                    elif src_name == engine.source_name:
+                        pass
                     else:
                         try:
                             engine.set_source(src_name)     # hot-swap
