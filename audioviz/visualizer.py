@@ -7,9 +7,9 @@ WASAPI, FFT ni ventanas de Hann. Solo pide frames y dibuja.
 
 Teclas:
     1 / 2 / 3 / 4   fuente: loopback / fb2k / mic / tone   (hot-swap, sin reiniciar)
-                    Solo se ofrecen las fuentes compatibles con tu SO: loopback y
-                    mic son de Windows, asi que en Linux esas teclas quedan inertes
-                    (solo fb2k y tone). fb2k (tecla 2) es ademas de nicho y esta
+                    Solo se ofrecen las fuentes compatibles con tu SO: loopback,
+                    fb2k y mic son de Windows, asi que en Linux esas teclas quedan
+                    inertes (solo tone). fb2k (tecla 2) es ademas de nicho y esta
                     oculta por defecto: habilitala en el panel (TAB) o con
                     --enable-fb2k
     Q / A       attack  -/+
@@ -666,8 +666,8 @@ def main() -> None:
     applied_palette_flags = palette_flags()   # flags con los que se extrajo la paleta
 
     # Tecla fija por fuente (1/2/3/4). Solo se mapean las compatibles con este SO:
-    # en Linux las teclas de loopback/mic quedan inertes (no existen esas fuentes).
-    # fb2k (tecla 2) ademas esta gateada por su toggle (ver mas abajo).
+    # en Linux las teclas de loopback/fb2k/mic quedan inertes (no existen esas
+    # fuentes). fb2k (tecla 2) ademas esta gateada por su toggle (ver mas abajo).
     SOURCE_KEYS = [(pygame.K_1, "1", "loopback"), (pygame.K_2, "2", "fb2k"),
                    (pygame.K_3, "3", "mic"), (pygame.K_4, "4", "tone")]
     keymap = {key: name for key, _, name in SOURCE_KEYS if is_available(name)}
@@ -1029,7 +1029,7 @@ def main() -> None:
         if view.show_keybinds:
             # Teclas de fuente en el hint: solo las mapeadas en este SO (keymap) y,
             # de esas, fb2k solo si esta habilitada (su tecla queda inerte si no).
-            # En Windows con fb2k: 1/2/3/4; sin ella: 1/3/4. En Linux: 2/4 o 4.
+            # En Windows con fb2k: 1/2/3/4; sin ella: 1/3/4. En Linux: 4.
             src_keys = "/".join(lbl for key, lbl, name in SOURCE_KEYS
                                 if key in keymap and (name != "fb2k" or engine.fb2k_enabled))
             screen.blit(font.render(f"{src_keys} fuente   Q/A attack   W/S decay   M metadata   C vista   T on-top   F11 pantalla completa   TAB config   ESC salir",

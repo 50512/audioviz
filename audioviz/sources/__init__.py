@@ -2,8 +2,8 @@
 
 Cada fuente se etiqueta con el SO en el que puede correr:
 
-    generic  -> cualquier SO (solo numpy o websockets)
-    windows  -> solo Windows (WASAPI via pyaudiowpatch)
+    generic  -> cualquier SO (solo numpy)
+    windows  -> solo Windows (WASAPI via pyaudiowpatch, o fb2k via WebSocket)
     linux    -> solo Linux (aun no hay ninguna)
 
 De aca sale la UNICA fuente de verdad de "que fuentes existen y cuales aplican
@@ -30,7 +30,7 @@ __all__ = ["AudioSource", "Frame", "LatestSlot", "RingBuffer",
 # siempre disponible en cualquier SO.
 SOURCE_PLATFORMS: dict[str, str] = {
     "loopback": "windows",   # loopback WASAPI: captura la salida del sistema
-    "fb2k": "generic",       # foobar via WebSocket: el server no es de plataforma
+    "fb2k": "windows",       # foobar via WebSocket: foobar2000 es de Windows
     "mic": "windows",        # entrada WASAPI via pyaudiowpatch
     "tone": "generic",       # tono sintetico: solo numpy
 }
@@ -63,7 +63,7 @@ def __getattr__(name):
     # y solo se importa cuando de verdad se usa, para no arrastrar dependencias de
     # otro SO ni websockets al importar el paquete.
     if name == "Fb2kSource":
-        from .generic.fb2k import Fb2kSource
+        from .windows.fb2k import Fb2kSource
         return Fb2kSource
     if name == "LoopbackSource":
         from .windows.loopback import LoopbackSource

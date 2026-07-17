@@ -6,7 +6,7 @@ ultimo mensaje en memoria y lo dejamos ahi hasta que llegue uno nuevo -- no
 hay heartbeat que limpiar.
 
 Corre en su propio hilo con su propio loop de asyncio, igual que Fb2kSource
-en sources/fb2k.py, para no bloquear el frame de la GUI. Si el servicio no
+en sources/windows/fb2k.py, para no bloquear el frame de la GUI. Si el servicio no
 esta arriba o se cae a mitad de cancion, reintentamos en el fondo con un
 backoff fijo; la GUI simplemente sigue mostrando la ultima metadata conocida
 (o nada, si nunca hubo conexion).

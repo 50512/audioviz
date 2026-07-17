@@ -20,6 +20,7 @@ import pygame
 
 from . import config
 from .analysis import NOTES, parse_note
+from .sources import is_available
 from .visualizations.base import SliderSetting, StepperSetting, ToggleSetting
 
 # Paleta, alineada con la del visualizador (fondo 14,14,18 / acento 90,200,250).
@@ -290,8 +291,10 @@ class SettingsPanel:
                                    lambda: config.available_sources(eng.fb2k_enabled))),
             # fb2k es nicho (levanta su propio servidor WebSocket): oculta por
             # defecto. Encenderlo la agrega a la lista de arriba; apagarlo estando
-            # en fb2k devuelve la fuente al default (ver _set_allow_fb2k).
-            _Row("habilitar fb2k", Toggle(lambda: eng.fb2k_enabled, self._set_allow_fb2k)),
+            # en fb2k devuelve la fuente al default (ver _set_allow_fb2k). fb2k es
+            # de Windows (foobar2000): el toggle ni aparece en Linux.
+            _Row("habilitar fb2k", Toggle(lambda: eng.fb2k_enabled, self._set_allow_fb2k),
+                 visible=lambda: is_available("fb2k")),
             _Row("attack", Slider(lambda: eng.attack_ms,
                                   lambda v: setattr(eng, "attack_ms", v),
                                   1, 500, step=1, fmt=lambda v: f"{int(v)} ms")),
