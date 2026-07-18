@@ -53,10 +53,6 @@ def available_sources(fb2k_enabled: bool) -> list[str]:
     listado (la comparten el panel y el mapa de teclas del visualizador)."""
     return [s for s in platform_sources() if s != "fb2k" or fb2k_enabled]
 
-# Host por defecto de los servicios de metadata/caratula (IP o hostname). El
-# puerto y las rutas son fijos (formato de la API); ver build_urls en visualizer.
-DEFAULT_HOST = "127.0.0.1"
-
 # Colores base del modo normal (no extraido de la caratula). color_lo tine el
 # grave/canal izquierdo y color_hi el agudo/canal derecho: son los dos extremos
 # del degradado. color_mid es un tercer color OPCIONAL (punto medio del
@@ -108,7 +104,6 @@ DEFAULTS: dict = {
     # Por visualizacion: usar los colores personalizados como fallback (ver arriba).
     "bars_use_custom": False,
     "circle_use_custom": False,
-    "host": DEFAULT_HOST,
     "show_metadata": True,
     # HUD de datos (esquina sup. izq.): interruptor maestro + que valores muestra.
     # La linea de atajos de teclado se controla aparte (show_keybinds).
@@ -240,7 +235,6 @@ def snapshot(view, engine) -> dict:
         "colors_gradient_mode": view.colors_gradient_mode,
         "bars_use_custom": view.bars_use_custom,
         "circle_use_custom": view.circle_use_custom,
-        "host": view.host,
         "show_metadata": view.show_metadata,
         "show_hud": view.show_hud,
         "show_keybinds": view.show_keybinds,

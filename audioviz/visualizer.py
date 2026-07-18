@@ -41,10 +41,9 @@ import pygame.freetype
 
 from . import config
 from .engine import Engine
-from .metadata import MetadataMonitor
+from .metadata import NO_ART, create_media_monitor
 from .sources import is_available
 from .settings_panel import SettingsPanel
-from .thumbnail import NO_ART, ThumbnailMonitor
 from .visualizations import RenderContext, build_visualizations
 from .visualizations.bars import (BARS_GRADIENT_MODES, BARS_SCOPES,
                                   DEFAULT_BARS_GRADIENT, DEFAULT_BARS_SCOPE)
@@ -87,31 +86,6 @@ VINYL_GROOVE = (44, 46, 58)
 VINYL_LABEL = (30, 31, 40)   # circulo central (tapado por la caratula si existe)
 VINYL_SHEEN = (46, 50, 66)   # brillo aditivo que hace visible el giro
 VINYL_SPIN_DPS = 45.0        # grados por segundo mientras hay reproduccion
-
-WS_PORT = 25012            # puerto de los servicios de metadata/caratula (fijo)
-
-
-def build_urls(host: str) -> tuple[str, str]:
-    """(url_metadata, url_thumbnail) desde el host (IP o hostname). El puerto y
-    las rutas son el formato de la API. Host vacio -> ('', '') = sin conexion."""
-    host = host.strip()
-    if not host:
-        return "", ""
-    base = f"ws://{host}:{WS_PORT}/ws"
-    return f"{base}/media-info", f"{base}/thumbnail"
-
-
-def build_monitors(host: str):
-    """Crea y arranca los monitores para el host. Devuelve (metadata, thumbnail),
-    cada uno None si el host esta vacio (sin conexion)."""
-    murl, turl = build_urls(host)
-    meta = MetadataMonitor(murl) if murl else None
-    if meta:
-        meta.start()
-    thumb = ThumbnailMonitor(turl) if turl else None
-    if thumb:
-        thumb.start()
-    return meta, thumb
 
 
 _sdl_cache: object | None = None
@@ -283,13 +257,19 @@ class FallbackFont:
 
 def draw_metadata_bar(surf, font, w, info) -> None:
     """Barra de "now playing" pegada al borde superior. info: MediaInfo.
-    font es un FallbackFont (soporta glifos no latinos: kanji, hangul...)."""
+    font es un FallbackFont (soporta glifos no latinos: kanji, hangul...).
+
+    Muestra TODO lo que extrae el monitor (titulo, artista, album y estado de
+    reproduccion) para verificar que llega completo; puede desbordar la ventana,
+    no importa: es una barra de diagnostico, no la version final."""
     pygame.draw.rect(surf, META_BG, (0, 0, w, META_BAR_H))
-    if not info.title and not info.artist:
+    # Cada campo se incluye solo si existe; ninguno es obligatorio.
+    parts = [p for p in (info.title, info.artist, info.album_title) if p]
+    if info.playback_status:
+        parts.append(f"[{info.playback_status}]")
+    if not parts:
         return
-    label = " - ".join(p for p in (info.title, info.artist) if p)
-    if not info.is_playing:
-        label += "  (pausado)"
+    label = "  -  ".join(parts)
     color = META_TEXT if info.is_playing else META_TEXT_PAUSED
     text = font.render(label, color)
     x = max(8, (w - text.get_width()) // 2)
@@ -401,7 +381,6 @@ class ViewState:
                  color_mid: tuple = (185, 125, 230), color_use_mid: bool = False,
                  colors_gradient_mode: str = "rgb",
                  bars_use_custom: bool = False, circle_use_custom: bool = False,
-                 host: str = "",
                  fullscreen_display: int = 0, palette_strict: bool = True,
                  palette_relaxed: bool = True, palette_default_fallback: bool = True,
                  frameless: bool = False, always_on_top: bool = False,
@@ -460,9 +439,6 @@ class ViewState:
         # activa y da colores utiles, siempre manda sobre ambos.
         self.bars_use_custom = bars_use_custom
         self.circle_use_custom = circle_use_custom
-        # Host (IP/hostname) de los servicios de metadata/caratula. Editable en el
-        # panel; el visualizador reconstruye los monitores cuando cambia.
-        self.host = host
         # Indice del monitor al que se ancla la pantalla completa (F11).
         self.fullscreen_display = fullscreen_display
         # Filtros del extractor de color de la caratula, cada uno on/off desde el
@@ -541,9 +517,6 @@ def main() -> None:
     ap.add_argument("--bars-scope", dest="bars_gradient_scope", default=S, choices=BARS_SCOPES,
                      help="alcance del degradado de barras: channel (grave->agudo por "
                           "canal) o span (grave L -> grave R, todo el ancho)")
-    ap.add_argument("--host", default=S,
-                     help="IP o hostname de los servicios de metadata/caratula "
-                          "(puerto y rutas fijos; vacio para desactivarlos)")
     # No-config: argumentos de arranque, no se persisten.
     ap.add_argument("--fps", type=float, default=60.0)
     ap.add_argument("--seconds", type=float, default=0.0, help="0 = infinito")
@@ -600,12 +573,14 @@ def main() -> None:
     if engine.source_name != eff["source"]:
         arm_source_flash()
 
-    # La metadata y la caratula viajan por sus propios WebSocket, ajenos al motor
-    # de audio: si el servicio no esta arriba el hilo reintenta en el fondo y
-    # read() devuelve None, sin afectar en nada al resto del visualizador. Ambos
-    # salen del mismo host (editable en el panel; se reconstruyen al cambiarlo).
-    metadata_monitor, thumbnail_monitor = build_monitors(eff["host"])
-    applied_host = eff["host"]   # host con el que estan armados los monitores
+    # La metadata y la caratula las provee un unico monitor local, ajeno al motor
+    # de audio: en Windows se suscribe a los eventos de la sesion multimedia de
+    # winrt (audioviz/metadata/); en otros SO todavia no hay backend y devuelve
+    # None. read()/read_thumbnail() nunca bloquean el frame ni afectan al resto
+    # del visualizador si no hay nada reproduciendo.
+    media_monitor = create_media_monitor()
+    if media_monitor:
+        media_monitor.start()
     # C cicla 4 vistas: (caratula+disco, solo disco, solo caratula, nada).
     # Cada estado dice si se dibuja el vinilo y/o la caratula.
     THUMB_MODES = [(True, True), (True, False), (False, True), (False, False)]
@@ -644,7 +619,6 @@ def main() -> None:
                      colors_gradient_mode=eff["colors_gradient_mode"],
                      bars_use_custom=bool(eff["bars_use_custom"]),
                      circle_use_custom=bool(eff["circle_use_custom"]),
-                     host=str(eff["host"]),
                      fullscreen_display=int(eff["fullscreen_display"]),
                      palette_strict=bool(eff["palette_strict"]),
                      palette_relaxed=bool(eff["palette_relaxed"]),
@@ -889,18 +863,8 @@ def main() -> None:
                     sync_on_top()
                     persist_config()   # guarda al instante (atajo fuera del panel)
 
-        # El panel se acaba de cerrar: aplicamos cambios de host (reconstruyendo
-        # los monitores en caliente) y persistimos el estado (salvo --no-config).
+        # El panel se acaba de cerrar: persistimos el estado (salvo --no-config).
         if panel_was_open and not panel.open:
-            if view.host != applied_host:
-                if metadata_monitor:
-                    metadata_monitor.stop()
-                if thumbnail_monitor:
-                    thumbnail_monitor.stop()
-                metadata_monitor, thumbnail_monitor = build_monitors(view.host)
-                applied_host = view.host
-                # La caratula vieja ya no aplica: la nueva conexion la reemplaza.
-                thumb_raw = thumb_surface = art_panel = art_panel_for = cover_palette = None
             # Si se tocaron los filtros del extractor de color, re-extraemos la
             # paleta de la caratula actual en caliente (el k-means es barato y la
             # imagen ya esta decodificada; sin esto el cambio no se veria hasta la
@@ -938,7 +902,7 @@ def main() -> None:
 
         # El estado de reproduccion se lee SIEMPRE (aunque la barra este oculta
         # con M): controla el giro del vinilo. Sin metadata, el disco gira.
-        now_playing = metadata_monitor.read() if metadata_monitor else None
+        now_playing = media_monitor.read() if media_monitor else None
         spinning = now_playing.is_playing if now_playing is not None else True
 
         # La barra de now-playing se DIBUJA despues (mas abajo), para que quede por
@@ -984,8 +948,8 @@ def main() -> None:
         # no se muestre): asi thumb_surface no queda viejo y la paleta de color
         # esta lista para las visualizaciones que la usen, este el disco visible
         # o no. El decode/extraccion solo ocurre en el cambio de bytes.
-        if thumbnail_monitor:
-            raw = thumbnail_monitor.read()
+        if media_monitor:
+            raw = media_monitor.read_thumbnail()
             if raw is not None and raw is not thumb_raw:
                 thumb_raw = raw
                 if raw is NO_ART:
@@ -1093,10 +1057,8 @@ def main() -> None:
             running = False
 
     engine.close()
-    if metadata_monitor:
-        metadata_monitor.stop()
-    if thumbnail_monitor:
-        thumbnail_monitor.stop()
+    if media_monitor:
+        media_monitor.stop()
     pygame.quit()
 
 

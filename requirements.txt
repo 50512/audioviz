@@ -2,3 +2,6 @@ numpy==2.5.1
 pygame-ce==2.5.7
 websockets==16.1
 PyAudioWPatch==0.2.12.8 ; sys_platform == "win32"
+winrt-Windows.Media.Control==3.2.1 ; sys_platform == "win32"
+winrt-Windows.Storage.Streams==3.2.1 ; sys_platform == "win32"
+winrt-Windows.foundation==3.2.1 ; sys_platform == "win32"

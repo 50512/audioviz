@@ -129,9 +129,6 @@ class SettingsPanel:
 
         # --- pestana VISUAL: presentacion general + que visualizaciones se ven -
         visual = [
-            _Row("host", TextInput(lambda: view.host,
-                                   lambda v: setattr(view, "host", v),
-                                   placeholder="ip del host")),
             _Row("metadata", Toggle(lambda: view.show_metadata,
                                     lambda v: setattr(view, "show_metadata", v))),
             # Interruptores maestros de los overlays de texto de la esquina. El
