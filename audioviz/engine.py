@@ -46,6 +46,9 @@ def make_source(name: str, **kw) -> AudioSource:
     if name == "mic":
         from .sources import MicSource
         return MicSource(**kw)
+    if name == "pipewire":
+        from .sources import PipeWireSource
+        return PipeWireSource(**kw)
     if name == "tone":
         from .sources import ToneSource
         return ToneSource(**kw)

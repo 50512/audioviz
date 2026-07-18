@@ -1,7 +1,8 @@
 """Fuentes exclusivas de Linux.
 
-Vacio por ahora: aun no hay ninguna fuente especifica de Linux (la captura del
-sistema alla iria por PipeWire/PulseAudio/ALSA, no por WASAPI). Existe como
-destino claro para cuando se agregue una, y para dejar simetrica la estructura
-windows/linux/generic.
+La captura del sistema aca va por PipeWire/PulseAudio (el monitor del sink de
+salida), no por WASAPI: ver pipewire.PipeWireSource. Se apoya en el binario
+`parec` (pipewire-pulse / pulseaudio) leyendo PCM crudo por una tuberia, asi que
+no arrastra ninguna dependencia de Python -- por eso el registro de sources la
+importa de forma perezosa igual que las de Windows.
 """

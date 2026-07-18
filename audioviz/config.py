@@ -183,6 +183,16 @@ def sanitize(eff: dict) -> None:
     solo (un modo de degradado desconocido cae a rgb, etc.)."""
     if eff.get("source") not in SOURCES:
         eff["source"] = DEFAULTS["source"]
+    # Una fuente valida en el esquema pero de OTRO SO (config traida de otra
+    # maquina, o el equipo cambio de plataforma: p.ej. 'loopback' guardado en
+    # Windows y abierto en Linux) no se puede usar aca. La llevamos a la preferida
+    # de ESTE SO en vez de dejar que el motor caiga hasta 'tone' su fallback
+    # definitivo -- si no, un Linux con el default de fabrica nunca capturaria la
+    # salida del sistema. platform_sources() ya viene en orden canonico: [0] es la
+    # preferida (pipewire en Linux, loopback en Windows).
+    usable = platform_sources()
+    if eff.get("source") not in usable:
+        eff["source"] = usable[0]
     if eff.get("distribution") not in DISTRIBUTIONS:
         eff["distribution"] = DEFAULTS["distribution"]
     # Colores base -> tupla de 3 enteros (o su default). Ver _coerce_rgb.

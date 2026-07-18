@@ -9,9 +9,10 @@ Teclas:
     1 / 2 / 3 / 4   fuente: loopback / fb2k / mic / tone   (hot-swap, sin reiniciar)
                     Solo se ofrecen las fuentes compatibles con tu SO: loopback,
                     fb2k y mic son de Windows, asi que en Linux esas teclas quedan
-                    inertes (solo tone). fb2k (tecla 2) es ademas de nicho y esta
-                    oculta por defecto: habilitala en el panel (TAB) o con
-                    --enable-fb2k
+                    inertes. En Linux la tecla 1 es 'pipewire' (captura la salida
+                    del sistema, el equivalente de loopback), y queda tone en la 4.
+                    fb2k (tecla 2) es ademas de nicho y esta oculta por defecto:
+                    habilitala en el panel (TAB) o con --enable-fb2k
     Q / A       attack  -/+
     W / S       decay   -/+
     M           metadata (now playing) on/off
@@ -694,9 +695,13 @@ def main() -> None:
 
     # Tecla fija por fuente (1/2/3/4). Solo se mapean las compatibles con este SO:
     # en Linux las teclas de loopback/fb2k/mic quedan inertes (no existen esas
-    # fuentes). fb2k (tecla 2) ademas esta gateada por su toggle (ver mas abajo).
-    SOURCE_KEYS = [(pygame.K_1, "1", "loopback"), (pygame.K_2, "2", "fb2k"),
-                   (pygame.K_3, "3", "mic"), (pygame.K_4, "4", "tone")]
+    # fuentes) y en Windows la de pipewire. fb2k (tecla 2) ademas esta gateada por
+    # su toggle (ver mas abajo). loopback y pipewire comparten la tecla 1 -- son la
+    # "captura de la salida del sistema" de cada SO y nunca coexisten (una es de
+    # Windows, la otra de Linux), asi que is_available deja solo la que aplica.
+    SOURCE_KEYS = [(pygame.K_1, "1", "loopback"), (pygame.K_1, "1", "pipewire"),
+                   (pygame.K_2, "2", "fb2k"), (pygame.K_3, "3", "mic"),
+                   (pygame.K_4, "4", "tone")]
     keymap = {key: name for key, _, name in SOURCE_KEYS if is_available(name)}
     running = True
     elapsed = 0.0

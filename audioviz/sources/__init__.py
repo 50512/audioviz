@@ -21,8 +21,8 @@ import sys
 from .base import AudioSource, Frame, LatestSlot, RingBuffer
 
 __all__ = ["AudioSource", "Frame", "LatestSlot", "RingBuffer",
-           "Fb2kSource", "LoopbackSource", "MicSource", "ToneSource",
-           "SOURCE_PLATFORMS", "current_platform", "is_available",
+           "Fb2kSource", "LoopbackSource", "MicSource", "PipeWireSource",
+           "ToneSource", "SOURCE_PLATFORMS", "current_platform", "is_available",
            "available_sources"]
 
 # Fuente -> plataforma. El ORDEN es el canonico (orden de fallback y de la UI):
@@ -32,6 +32,7 @@ SOURCE_PLATFORMS: dict[str, str] = {
     "loopback": "windows",   # loopback WASAPI: captura la salida del sistema
     "fb2k": "windows",       # foobar via WebSocket: foobar2000 es de Windows
     "mic": "windows",        # entrada WASAPI via pyaudiowpatch
+    "pipewire": "linux",     # monitor PipeWire/Pulse: captura la salida del sistema
     "tone": "generic",       # tono sintetico: solo numpy
 }
 
@@ -71,6 +72,9 @@ def __getattr__(name):
     if name == "MicSource":
         from .windows.mic import MicSource
         return MicSource
+    if name == "PipeWireSource":
+        from .linux.pipewire import PipeWireSource
+        return PipeWireSource
     if name == "ToneSource":
         from .generic.synthetic import ToneSource
         return ToneSource

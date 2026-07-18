@@ -3,6 +3,7 @@
     python -m audioviz --source loopback
     python -m audioviz --source fb2k
     python -m audioviz --source mic       (microfono del dispositivo)
+    python -m audioviz --source pipewire  (salida del sistema en Linux)
     python -m audioviz --source tone      (sin foobar, para desarrollar)
 
 El bucle de abajo NO sabe de que fuente viene el audio. Ese es el punto.
@@ -27,6 +28,9 @@ def build_source(name: str) -> AudioSource:
     if name == "mic":
         from .sources import MicSource
         return MicSource()
+    if name == "pipewire":
+        from .sources import PipeWireSource
+        return PipeWireSource()
     if name == "tone":
         from .sources import ToneSource
         return ToneSource()
