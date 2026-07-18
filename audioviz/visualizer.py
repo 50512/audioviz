@@ -66,9 +66,12 @@ META_TEXT_PAUSED = (140, 140, 150)
 META_BAR_H = 28
 # La barra de now-playing puede traer cualquier idioma. Consolas (primaria)
 # mantiene el look monoespaciado del ASCII; las de reserva cubren japones
-# (kana + kanji + Han, asi que tambien chino) y coreano (hangul). pygame.font
-# no encadena glifos, asi que lo hacemos nosotros via pygame.freetype.
-META_FONT_CHAIN = ["consolas", "yugothicui", "malgungothic"]
+# (kana + kanji + Han, asi que tambien chino), coreano (hangul) y emojis.
+# pygame.font no encadena glifos, asi que lo hacemos nosotros via
+# pygame.freetype. El emoji va al final: freetype no pinta las capas de color
+# (COLR/CPAL) de Segoe UI Emoji, pero si su contorno monocromo, asi que los
+# titulos con emoji salen como glifos y no como cajas o '?'.
+META_FONT_CHAIN = ["consolas", "yugothicui", "malgungothic", "segoeuiemoji"]
 # --- caratula (label sobre el vinilo) ---
 THUMB_BACKDROP = (34, 36, 48, 235)   # relleno del marco: mas notorio que el fondo (14,14,18)
 THUMB_BORDER = (96, 108, 142)        # trazo del borde: acento frio, claro pero oscuro
