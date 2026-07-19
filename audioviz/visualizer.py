@@ -39,8 +39,9 @@ import numpy as np
 import pygame
 import pygame.freetype
 
-from . import config
+from . import config, i18n
 from .engine import Engine
+from .i18n import t
 from .metadata import NO_ART, create_media_monitor
 from .sources import is_available
 from .settings_panel import SettingsPanel
@@ -545,6 +546,9 @@ def main() -> None:
     cli = {k: getattr(args, k) for k in config.DEFAULTS if hasattr(args, k)}
     eff = {**config.DEFAULTS, **file_cfg, **cli}
     config.sanitize(eff)
+    # Idioma de la UI: estado global del proceso. Se fija antes de construir el
+    # panel; HUD y linea de atajos leen t() en vivo cada cuadro.
+    i18n.set_language(eff["language"])
 
     pygame.init()
     pygame.freetype.init()
@@ -587,7 +591,8 @@ def main() -> None:
     # C cicla 4 vistas: (caratula+disco, solo disco, solo caratula, nada).
     # Cada estado dice si se dibuja el vinilo y/o la caratula.
     THUMB_MODES = [(True, True), (True, False), (False, True), (False, False)]
-    THUMB_MODE_LABELS = ["disco+car", "disco", "caratula", "nada"]
+    # Claves i18n (una por vista); el panel las traduce al idioma vigente.
+    THUMB_MODE_LABELS = ["thumb_disc_cover", "thumb_disc", "thumb_cover", "thumb_none"]
 
     # Visualizaciones del espectro. Cada una se dibuja si esta activa; el estado
     # de activacion vive en la vista y lo alterna el panel de configuracion.
@@ -1031,7 +1036,7 @@ def main() -> None:
                     parts.append(f"{clock.get_fps():.0f} fps")
                 rest = "".join(f"  |  {p}" for p in parts)
             else:
-                rest = "  |  esperando audio…"
+                rest = f"  |  {t('hud_waiting')}"
             if rest:
                 screen.blit(font.render(rest, True, TEXT), (x, hud_y))
             hud_y += 18
@@ -1041,7 +1046,7 @@ def main() -> None:
             # En Windows con fb2k: 1/2/3/4; sin ella: 1/3/4. En Linux: 4.
             src_keys = "/".join(lbl for key, lbl, name in SOURCE_KEYS
                                 if key in keymap and (name != "fb2k" or engine.fb2k_enabled))
-            screen.blit(font.render(f"{src_keys} fuente   Q/A attack   W/S decay   M metadata   C vista   T on-top   F11 pantalla completa   TAB config   ESC salir",
+            screen.blit(font.render(f"{src_keys} {t('kb_source')}   Q/A attack   W/S decay   M metadata   C {t('kb_view')}   T on-top   F11 {t('kb_fullscreen')}   TAB config   ESC {t('kb_exit')}",
                                     True, GRID), (16, hud_y))
         panel.draw(screen)   # modal encima de todo, si esta abierto
         pygame.display.flip()

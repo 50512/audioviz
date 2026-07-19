@@ -20,9 +20,10 @@ import colorsys
 import math
 
 # Modos de degradado. GRADIENT_MODES son los ids estables (flag, estado);
-# GRADIENT_LABELS lo que se ve en el panel. Mismo orden.
+# GRADIENT_LABELS son claves i18n que el panel traduce al dibujar (rgb/oklch no
+# tienen entrada: t() devuelve la clave tal cual). Mismo orden.
 GRADIENT_MODES = ["rgb", "warm", "cool", "oklch"]
-GRADIENT_LABELS = ["rgb", "cálido", "frío", "oklch"]
+GRADIENT_LABELS = ["rgb", "grad_warm", "grad_cool", "oklch"]
 DEFAULT_GRADIENT = "rgb"
 
 

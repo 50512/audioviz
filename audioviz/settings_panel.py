@@ -26,9 +26,10 @@ from typing import Callable
 
 import pygame
 
-from . import config
+from . import config, i18n
 from .analysis import NOTES, parse_note
 from .color_picker import ColorPicker, GradientPreview, Swatch
+from .i18n import t
 from .sources import is_available
 from .theme import (LABEL, LABEL_W, OVERLAY, PAD, PANEL_BG, PANEL_BORDER,
                     PANEL_W, ROW_H, TAB_ACCENT, TAB_ACTIVE_BG, TAB_H,
@@ -74,12 +75,31 @@ class SettingsPanel:
         # medio). Se abre al clic de un swatch y escribe su color en caliente.
         self.picker = ColorPicker(self.font, self.font_title)
 
-        eng = engine
+        # Parametros que _build_tabs necesita para (re)armar las filas: lo hace en
+        # __init__ y en cada cambio de idioma (las filas guardan el texto ya
+        # traducido, asi que hay que rehacerlas leyendo las traducciones vigentes).
+        self._thumb_mode_keys = thumb_mode_labels   # claves i18n, una por vista
+        self._visualizations = visualizations
         # Monitores disponibles para anclar la pantalla completa (F11). La fila
         # solo aparece si hay mas de uno; el label muestra el indice y su tamano.
-        n_disp = pygame.display.get_num_displays()
+        self._n_disp = pygame.display.get_num_displays()
         disp_sizes = pygame.display.get_desktop_sizes()
-        disp_labels = [f"{i + 1}: {w}x{h}" for i, (w, h) in enumerate(disp_sizes)]
+        self._disp_labels = [f"{i + 1}: {w}x{h}" for i, (w, h) in enumerate(disp_sizes)]
+
+        self.active_tab = 0
+        self._tab_rects: list[pygame.Rect] = []
+        self.tabs: list[tuple[str, list[_Row]]] = []
+        self._build_tabs()
+
+    def _build_tabs(self) -> None:
+        """(Re)arma pestanas y filas con las traducciones del idioma vigente. Se
+        llama en __init__ y al cambiar de idioma (las filas guardan el texto ya
+        resuelto por t(), asi que hay que rehacerlas). Preserva active_tab."""
+        eng = self.engine
+        view = self.view
+        n_disp = self._n_disp
+        disp_labels = self._disp_labels
+        thumb_keys = self._thumb_mode_keys
 
         # --- pestana AUDIO: todo lo del motor de sonido/analisis --------------
         # note_lo/hi viajan como texto ('C0'); el slider trabaja en MIDI y
@@ -87,56 +107,61 @@ class SettingsPanel:
         audio = [
             # La lista de fuentes se recalcula en vivo: fb2k solo figura si el
             # toggle de abajo esta encendido (available_sources decide).
-            _Row("Fuente", Stepper(lambda: eng.source_name, self._set_source,
+            _Row(t("src"), Stepper(lambda: eng.source_name, self._set_source,
                                    lambda: config.available_sources(eng.fb2k_enabled))),
             # fb2k es nicho (levanta su propio servidor WebSocket): oculta por
             # defecto. Encenderlo la agrega a la lista de arriba; apagarlo estando
             # en fb2k devuelve la fuente al default (ver _set_allow_fb2k). fb2k es
             # de Windows (foobar2000): el toggle ni aparece en Linux.
-            _Row("Usar foobar2000", Toggle(lambda: eng.fb2k_enabled, self._set_allow_fb2k),
+            _Row(t("enable_fb2k"), Toggle(lambda: eng.fb2k_enabled, self._set_allow_fb2k),
                  visible=lambda: is_available("fb2k")),
-            _Row("Subida barras", Slider(lambda: eng.attack_ms,
+            _Row(t("rise"), Slider(lambda: eng.attack_ms,
                                   lambda v: setattr(eng, "attack_ms", v),
                                   1, 500, step=1, fmt=lambda v: f"{int(v)} ms")),
-            _Row("Caída barras", Slider(lambda: eng.decay_ms,
+            _Row(t("fall"), Slider(lambda: eng.decay_ms,
                                  lambda v: setattr(eng, "decay_ms", v),
                                  0, 1000, step=5, fmt=lambda v: f"{int(v)} ms")),
-            _Row("Reparto bandas", Stepper(lambda: eng.distribution,
+            _Row(t("band_layout"), Stepper(lambda: eng.distribution,
                                          lambda v: eng.reconfigure_analysis(distribution=v),
-                                         ["log", "octaves"])),
-            _Row("Cantidad bandas", Slider(lambda: eng.n_bands_req,
+                                         ["log", "octaves"],
+                                         [t("dist_log"), t("dist_octaves")])),
+            _Row(t("band_count"), Slider(lambda: eng.n_bands_req,
                                   lambda v: eng.reconfigure_analysis(n_bands=v),
                                   8, 256, step=1),
                  visible=lambda: eng.distribution == "log"),
-            _Row("Nota grave", Slider(lambda: parse_note(eng.note_lo),
+            _Row(t("note_low"), Slider(lambda: parse_note(eng.note_lo),
                                       lambda v: eng.reconfigure_analysis(note_lo=midi_to_name(v)),
                                       12, 138, step=1, fmt=lambda v: midi_to_name(int(v))),
                  visible=lambda: eng.distribution == "octaves"),
-            _Row("Nota aguda", Slider(lambda: parse_note(eng.note_hi),
+            _Row(t("note_high"), Slider(lambda: parse_note(eng.note_hi),
                                       lambda v: eng.reconfigure_analysis(note_hi=midi_to_name(v)),
                                       12, 138, step=1, fmt=lambda v: midi_to_name(int(v))),
                  visible=lambda: eng.distribution == "octaves"),
-            _Row("Bandas/octava", Slider(lambda: eng.bands_per_octave,
+            _Row(t("bands_per_oct"), Slider(lambda: eng.bands_per_octave,
                                       lambda v: eng.reconfigure_analysis(bands_per_octave=v),
                                       1, 48, step=1),
                  visible=lambda: eng.distribution == "octaves"),
-            _Row("Afinación", Slider(lambda: eng.tuning,
+            _Row(t("tuning"), Slider(lambda: eng.tuning,
                                      lambda v: eng.reconfigure_analysis(tuning=v),
                                      400, 480, step=0.5, integer=False,
                                      fmt=lambda v: f"{v:.1f} Hz"),
                  visible=lambda: eng.distribution == "octaves"),
         ]
 
-        # --- pestana VISUAL: presentacion general + que visualizaciones se ven -
+        # --- pestana VISUAL: idioma, overlays de texto y que visualizaciones se ven -
         visual = [
-            _Row("Info de pista", Toggle(lambda: view.show_metadata,
+            # Selector de idioma: al cambiarlo se rearma el panel entero (ver
+            # _set_language). Los nombres se muestran nativos en ambos idiomas.
+            _Row(t("language"), Stepper(i18n.get_language, self._set_language,
+                                        i18n.LANGUAGES, i18n.LANGUAGE_LABELS)),
+            _Row(t("track_info"), Toggle(lambda: view.show_metadata,
                                     lambda v: setattr(view, "show_metadata", v))),
             # Interruptores maestros de los overlays de texto de la esquina. El
             # detalle de que valores muestra el HUD de datos vive en su propia
             # pestana ("datos"); aca solo se prende/apaga toda la linea.
-            _Row("Panel de datos", Toggle(lambda: view.show_hud,
+            _Row(t("data_panel"), Toggle(lambda: view.show_hud,
                                  lambda v: setattr(view, "show_hud", v))),
-            _Row("Atajos teclado", Toggle(lambda: view.show_keybinds,
+            _Row(t("shortcuts"), Toggle(lambda: view.show_keybinds,
                                   lambda v: setattr(view, "show_keybinds", v))),
         ]
 
@@ -145,7 +170,7 @@ class SettingsPanel:
         # completa, marco, siempre-encima); separado de "visual" para que esa
         # pestana quede enfocada en que se dibuja, no en como se comporta la ventana.
         ventana = [
-            _Row("Monitor", Stepper(lambda: view.fullscreen_display,
+            _Row(t("monitor"), Stepper(lambda: view.fullscreen_display,
                                      lambda v: setattr(view, "fullscreen_display", v),
                                      list(range(n_disp)), disp_labels),
                  visible=lambda: n_disp > 1),
@@ -155,10 +180,10 @@ class SettingsPanel:
             # redimensionar, asi que ese alto se compensa en vez de perderse). Sin
             # title bar, la ventana se arrastra con clic-y-arrastre en cualquier
             # parte. F11 (pantalla completa) manda por encima de este modo.
-            _Row("Sin bordes", Toggle(lambda: view.frameless,
+            _Row(t("borderless"), Toggle(lambda: view.frameless,
                                       lambda v: setattr(view, "frameless", v))),
             # Ventana siempre encima (always-on-top). Tambien con la tecla T.
-            _Row("Siempre encima", Toggle(lambda: view.always_on_top,
+            _Row(t("always_top"), Toggle(lambda: view.always_on_top,
                                            lambda v: setattr(view, "always_on_top", v))),
         ]
 
@@ -168,18 +193,19 @@ class SettingsPanel:
         # la paleta de la pista actual); el fallback por defecto, apagado, hace que
         # se pinten los colores crudos extraidos.
         caratula = [
-            _Row("Vista", Stepper(lambda: view.thumb_mode,
+            _Row(t("view_mode"), Stepper(lambda: view.thumb_mode,
                                   lambda v: setattr(view, "thumb_mode", v),
-                                  list(range(len(thumb_mode_labels))), thumb_mode_labels)),
-            _Row("Tamaño disco", Slider(lambda: view.vinyl_scale,
+                                  list(range(len(thumb_keys))),
+                                  [t(k) for k in thumb_keys])),
+            _Row(t("disc_size"), Slider(lambda: view.vinyl_scale,
                                         lambda v: setattr(view, "vinyl_scale", v),
                                         0.3, 1.0, step=0.05, integer=False,
                                         fmt=lambda v: f"{v:.2f}x")),
-            _Row("Colores vivos", Toggle(lambda: view.palette_strict,
+            _Row(t("colors_vivid"), Toggle(lambda: view.palette_strict,
                                           lambda v: setattr(view, "palette_strict", v))),
-            _Row("Incluir grises", Toggle(lambda: view.palette_relaxed,
+            _Row(t("colors_gray"), Toggle(lambda: view.palette_relaxed,
                                            lambda v: setattr(view, "palette_relaxed", v))),
-            _Row("Usar defecto", Toggle(lambda: view.palette_default_fallback,
+            _Row(t("colors_default"), Toggle(lambda: view.palette_default_fallback,
                                           lambda v: setattr(view, "palette_default_fallback", v))),
         ]
         # --- pestana COLORES: colores base del modo normal (no caratula) -------
@@ -192,15 +218,15 @@ class SettingsPanel:
             return Swatch(get, lambda g=get, s=setr, d=default, t=title:
                           self.picker.open_for(g, s, d, t))
         colores = [
-            _Row("Grave", _color_swatch("color_lo", config.DEFAULT_COLOR_LO, "Color grave")),
-            _Row("Agudo", _color_swatch("color_hi", config.DEFAULT_COLOR_HI, "Color agudo")),
-            _Row("Usar 3er color", Toggle(lambda: view.color_use_mid,
+            _Row(t("color_low"), _color_swatch("color_lo", config.DEFAULT_COLOR_LO, t("title_color_low"))),
+            _Row(t("color_high"), _color_swatch("color_hi", config.DEFAULT_COLOR_HI, t("title_color_high"))),
+            _Row(t("use_third"), Toggle(lambda: view.color_use_mid,
                                      lambda v: setattr(view, "color_use_mid", v))),
-            _Row("Medio", _color_swatch("color_mid", config.DEFAULT_COLOR_MID, "Color medio"),
+            _Row(t("color_mid"), _color_swatch("color_mid", config.DEFAULT_COLOR_MID, t("title_color_mid")),
                  visible=lambda: view.color_use_mid),
-            _Row("Degradado", Stepper(lambda: view.colors_gradient_mode,
+            _Row(t("gradient"), Stepper(lambda: view.colors_gradient_mode,
                                       lambda v: setattr(view, "colors_gradient_mode", v),
-                                      GRADIENT_MODES, GRADIENT_LABELS)),
+                                      GRADIENT_MODES, [t(k) for k in GRADIENT_LABELS])),
             _Row(None, GradientPreview(view)),
         ]
 
@@ -211,50 +237,58 @@ class SettingsPanel:
             return Toggle(lambda a=attr: getattr(view, a),
                           lambda v, a=attr: setattr(view, a, v))
         data = [
-            _Row("Fuente", _hud("hud_source")),
-            _Row("Muestreo", _hud("hud_rate")),
-            _Row("Canales", _hud("hud_channels")),
-            _Row("Análisis", _hud("hud_analysis")),
-            _Row("Subida/caída", _hud("hud_ballistics")),
-            _Row("FPS", _hud("hud_fps")),
+            _Row(t("src"), _hud("hud_source")),
+            _Row(t("sample_rate"), _hud("hud_rate")),
+            _Row(t("channels"), _hud("hud_channels")),
+            _Row(t("analysis"), _hud("hud_analysis")),
+            _Row(t("ballistics"), _hud("hud_ballistics")),
+            _Row(t("fps"), _hud("hud_fps")),
         ]
 
         # Un interruptor por visualizacion registrada. El id se ata por argumento
         # por defecto para que cada lambda capture el suyo (no el ultimo del bucle).
-        for viz in visualizations:
+        for viz in self._visualizations:
             visual.append(
-                _Row(viz.label, Toggle(lambda vid=viz.id: view.enabled_viz.get(vid, False),
+                _Row(t(viz.label), Toggle(lambda vid=viz.id: view.enabled_viz.get(vid, False),
                                        lambda v, vid=viz.id: view.enabled_viz.__setitem__(vid, v))))
 
-        # (label, filas) por pestana. Las dos fijas primero; luego una por cada
+        # (label, filas) por pestana. Las fijas primero; luego una por cada
         # visualizacion que declare ajustes propios (settings()).
-        self.tabs: list[tuple[str, list[_Row]]] = [
-            ("Audio", audio), ("Visual", visual), ("Ventana", ventana),
-            ("Carátula", caratula), ("Colores", colores), ("Datos", data)]
-        for viz in visualizations:
+        self.tabs = [
+            (t("tab_audio"), audio), (t("tab_visual"), visual), (t("tab_window"), ventana),
+            (t("tab_cover"), caratula), (t("tab_colors"), colores), (t("tab_data"), data)]
+        for viz in self._visualizations:
             rows = [self._row_from_spec(spec) for spec in viz.settings()]
             if rows:
-                self.tabs.append((viz.label, rows))
-        self.active_tab = 0
-        self._tab_rects: list[pygame.Rect] = []
+                self.tabs.append((t(viz.label), rows))
 
     def _row_from_spec(self, spec) -> "_Row":
         """Traduce un spec de ajuste (declarado por la visualizacion) al widget
-        correspondiente, cableado por getattr/setattr al atributo del ViewState."""
+        correspondiente, cableado por getattr/setattr al atributo del ViewState.
+        Los labels del spec son claves i18n (label de la fila y, en steppers, los
+        de cada valor); se resuelven aca con t() para el idioma vigente."""
         view = self.view
         get = lambda a=spec.attr: getattr(view, a)
         setr = lambda v, a=spec.attr: setattr(view, a, v)
         if isinstance(spec, SliderSetting):
-            return _Row(spec.label, Slider(get, setr, spec.lo, spec.hi, step=spec.step,
+            return _Row(t(spec.label), Slider(get, setr, spec.lo, spec.hi, step=spec.step,
                                            integer=spec.integer, fmt=spec.fmt))
         if isinstance(spec, StepperSetting):
-            return _Row(spec.label, Stepper(get, setr, list(spec.values), spec.labels))
+            labels = [t(k) for k in spec.labels] if spec.labels else None
+            return _Row(t(spec.label), Stepper(get, setr, list(spec.values), labels))
         if isinstance(spec, ToggleSetting):
-            return _Row(spec.label, Toggle(get, setr))
+            return _Row(t(spec.label), Toggle(get, setr))
         raise TypeError(f"spec de ajuste no soportado: {type(spec).__name__}")
 
     def toggle(self) -> None:
         self.open = not self.open
+
+    def _set_language(self, lang) -> None:
+        # Cambia el idioma global y rearma las filas (guardan el texto ya
+        # traducido). HUD y linea de atajos se redibujan leyendo t() en vivo, asi
+        # que se actualizan solos. El cambio se persiste al cerrar el panel.
+        i18n.set_language(lang)
+        self._build_tabs()
 
     def _set_source(self, name) -> None:
         try:
@@ -384,9 +418,9 @@ class SettingsPanel:
         pygame.draw.rect(surf, PANEL_BG, self.rect, border_radius=10)
         pygame.draw.rect(surf, PANEL_BORDER, self.rect, width=2, border_radius=10)
 
-        title = self.font_title.render("configuracion", True, TITLE)
+        title = self.font_title.render(t("settings_title"), True, TITLE)
         surf.blit(title, (self.rect.x + PAD, self.rect.y + PAD))
-        hint = self.font.render("TAB / ESC cerrar", True, LABEL)
+        hint = self.font.render(t("close_hint"), True, LABEL)
         surf.blit(hint, (self.rect.right - PAD - hint.get_width(), self.rect.y + PAD + 2))
 
         # Pestanas: la activa mas clara y con un subrayado de acento.
@@ -399,8 +433,8 @@ class SettingsPanel:
             if active:
                 pygame.draw.line(surf, TAB_ACCENT, (tr.x + 6, tr.bottom - 1),
                                  (tr.right - 6, tr.bottom - 1), 2)
-            t = self.font.render(label, True, TAB_TEXT_ON if active else TAB_TEXT_OFF)
-            surf.blit(t, (tr.centerx - t.get_width() // 2, tr.centery - t.get_height() // 2))
+            ts = self.font.render(label, True, TAB_TEXT_ON if active else TAB_TEXT_OFF)
+            surf.blit(ts, (tr.centerx - ts.get_width() // 2, tr.centery - ts.get_height() // 2))
 
         for r in self._visible_rows():
             cr = r.control.rect

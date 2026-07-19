@@ -19,6 +19,7 @@ import numpy as np
 import pygame
 import pygame.surfarray
 
+from .i18n import t
 from .theme import (BTN_BG, BTN_HOVER, BTN_TEXT, LABEL, OVERLAY, PAD, PANEL_BG,
                     PANEL_BORDER, SWATCH_BORDER, TITLE)
 from .visualizations.gradient import build_gradient
@@ -302,6 +303,6 @@ class ColorPicker:
         mouse = pygame.mouse.get_pos()
         pygame.draw.rect(surf, BTN_HOVER if self.reset_rect.collidepoint(mouse) else BTN_BG,
                          self.reset_rect, border_radius=5)
-        rt = self.font.render("reset", True, BTN_TEXT)
+        rt = self.font.render(t("pick_reset"), True, BTN_TEXT)
         surf.blit(rt, (self.reset_rect.centerx - rt.get_width() // 2,
                        self.reset_rect.centery - rt.get_height() // 2))

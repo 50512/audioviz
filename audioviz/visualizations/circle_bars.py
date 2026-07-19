@@ -22,7 +22,7 @@ from .base import (RenderContext, SliderSetting, StepperSetting, ToggleSetting,
                    Visualization)
 from .gradient import GRADIENT_LABELS, GRADIENT_MODES, build_gradient
 
-DEFAULT_RADIUS_MULT = 1.1   # radio interior por defecto = radio del vinilo * esto
+DEFAULT_RADIUS_MULT = 1.0   # radio interior por defecto = radio del vinilo * esto
 DEFAULT_CENTER = 50.0       # posicion vertical del centro por defecto (% del alto; 50 = mitad)
 FILL = 0.7            # fraccion angular ocupada por la barra (resto: hueco)
 OUTER_PAD = 8         # px que dejamos libres hasta el borde de la ventana
@@ -31,7 +31,7 @@ MIN_LEN = 2.0         # largo minimo de barra, para que el anillo nunca desapare
 
 class CircleBarsVisualization(Visualization):
     id = "circle"
-    label = "Círculo"
+    label = "viz_circle"   # clave i18n; el panel la traduce (pestana y toggle)
     default_on = False
 
     def __init__(self) -> None:
@@ -42,18 +42,19 @@ class CircleBarsVisualization(Visualization):
         self._grad_key: tuple | None = None
 
     def settings(self) -> list:
+        # Los labels (fila y valores) son claves i18n; el panel los traduce.
         return [
-            SliderSetting("Radio anillo", "circle_radius_mult", 1.0, 3.0, step=0.05,
+            SliderSetting("s_ring_radius", "circle_radius_mult", 1.0, 3.0, step=0.05,
                           integer=False, fmt=lambda v: f"{v:.2f}x"),
-            SliderSetting("Altura máx.", "circle_max_height", 0, 100, step=1,
+            SliderSetting("s_max_height", "circle_max_height", 0, 100, step=1,
                           fmt=lambda v: f"{int(v)} %"),
-            SliderSetting("Centro vert.", "circle_center", 0, 100, step=1,
+            SliderSetting("s_circle_center", "circle_center", 0, 100, step=1,
                           fmt=lambda v: f"{int(v)} %"),
-            StepperSetting("Degradado", "circle_gradient_mode",
+            StepperSetting("gradient", "circle_gradient_mode",
                            GRADIENT_MODES, GRADIENT_LABELS),
-            ToggleSetting("Colores propios", "circle_use_custom"),
-            ToggleSetting("Usar carátula", "circle_use_cover"),
-            ToggleSetting("Simétrico", "circle_symmetric"),
+            ToggleSetting("s_custom_colors", "circle_use_custom"),
+            ToggleSetting("s_use_cover", "circle_use_cover"),
+            ToggleSetting("s_symmetric", "circle_symmetric"),
         ]
 
     def _gradient(self, n, stops, mode):

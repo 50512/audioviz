@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 
+from . import i18n
 from .sources import SOURCE_PLATFORMS
 from .sources import available_sources as platform_sources
 from .visualizations.bars import (DEFAULT_BARS_COVER_2, DEFAULT_BARS_GRADIENT,
@@ -70,8 +71,8 @@ DEFAULTS: dict = {
     "source": "loopback",
     "fb2k_enabled": False,
     "attack_ms": 20.0,
-    "decay_ms": 250.0,
-    "distribution": "log",
+    "decay_ms": 100.0,
+    "distribution": "octaves",
     "n_bands": 128,
     "note_lo": "C0",
     "note_hi": "F#10",
@@ -83,14 +84,14 @@ DEFAULTS: dict = {
     # Altura del centro del conjunto disco+caratula+circulo, como % del alto de la
     # ventana (0 = abajo, 100 = arriba, 50 = mitad, el default de siempre).
     "circle_center": DEFAULT_CENTER,
-    "circle_gradient_mode": DEFAULT_GRADIENT,
+    "circle_gradient_mode": "cool",   # "frio": medio violeta, mas agradable de arranque
     "vinyl_scale": 1.0,
     "bars_gradient_mode": DEFAULT_BARS_GRADIENT,
     "bars_gradient_scope": DEFAULT_BARS_SCOPE,
     "bars_use_cover": False,
     "circle_use_cover": False,
     "bars_cover_2col": DEFAULT_BARS_COVER_2,
-    "circle_symmetric": False,
+    "circle_symmetric": True,
     # Colores base del modo normal (los persiste como listas [r,g,b]). El 3er
     # color solo se usa si color_use_mid esta activo Y la visualizacion esta en
     # degradado (las barras pueden estar en solido; ver bars/circle_bars).
@@ -104,6 +105,8 @@ DEFAULTS: dict = {
     # Por visualizacion: usar los colores personalizados como fallback (ver arriba).
     "bars_use_custom": False,
     "circle_use_custom": False,
+    # Idioma de la interfaz (panel, HUD, linea de atajos): "es" | "en".
+    "language": "es",
     "show_metadata": True,
     # HUD de datos (esquina sup. izq.): interruptor maestro + que valores muestra.
     # La linea de atajos de teclado se controla aparte (show_keybinds).
@@ -196,6 +199,8 @@ def sanitize(eff: dict) -> None:
         eff[key] = _coerce_rgb(eff.get(key), default)
     if eff.get("colors_gradient_mode") not in GRADIENT_MODES:
         eff["colors_gradient_mode"] = DEFAULTS["colors_gradient_mode"]
+    if eff.get("language") not in i18n.LANGUAGES:
+        eff["language"] = DEFAULTS["language"]
     # Estar en fb2k implica tenerla habilitada: no se puede haber seleccionado sin
     # habilitarla antes, asi que un archivo con source=fb2k la reactiva sola (y
     # esto mismo hace que --source fb2k la habilite de forma implicita).
@@ -251,5 +256,7 @@ def snapshot(view, engine) -> dict:
         "palette_strict": view.palette_strict,
         "palette_relaxed": view.palette_relaxed,
         "palette_default_fallback": view.palette_default_fallback,
+        # El idioma es estado global del proceso (i18n), no vive en la vista.
+        "language": i18n.get_language(),
         "enabled_viz": dict(view.enabled_viz),
     }

@@ -22,19 +22,20 @@ from .base import (RenderContext, SliderSetting, StepperSetting, ToggleSetting,
 from .gradient import GRADIENT_LABELS, GRADIENT_MODES, build_gradient
 
 # Modo de color: "solid" (colores por canal) + los degradados de gradient.py.
+# Los *_LABELS son claves i18n; el panel las traduce al construir cada stepper.
 BARS_GRADIENT_MODES = ["solid"] + GRADIENT_MODES
-BARS_GRADIENT_LABELS = ["sólido"] + GRADIENT_LABELS
+BARS_GRADIENT_LABELS = ["grad_solid"] + GRADIENT_LABELS
 DEFAULT_BARS_GRADIENT = "solid"
 
 # Alcance del degradado (donde se aplica).
 BARS_SCOPES = ["channel", "span"]
-BARS_SCOPE_LABELS = ["por canal", "extremos"]
+BARS_SCOPE_LABELS = ["scope_channel", "scope_span"]
 DEFAULT_BARS_SCOPE = "channel"
 
 # En modo caratula con EXACTAMENTE 2 colores: mezclarlos (degradado) o asignar
 # uno solido a cada canal. Con 1 color siempre es solido, con 3 siempre degradado.
 BARS_COVER_2 = ["gradient", "split"]
-BARS_COVER_2_LABELS = ["degradado", "por canal"]
+BARS_COVER_2_LABELS = ["cover2_gradient", "cover2_channel"]
 DEFAULT_BARS_COVER_2 = "gradient"
 
 
@@ -57,7 +58,7 @@ def draw_channel(surf, band_h, rect, color, reverse=False):
 
 class BarsVisualization(Visualization):
     id = "bars"
-    label = "Barras"
+    label = "viz_bars"   # clave i18n; el panel la traduce (pestana y toggle)
     default_on = True
 
     def __init__(self) -> None:
@@ -67,16 +68,17 @@ class BarsVisualization(Visualization):
         self._cache_key = None
 
     def settings(self) -> list:
+        # Los labels (fila y valores) son claves i18n; el panel los traduce.
         return [
-            SliderSetting("Altura máx.", "max_bar_height", 0, 100, step=1,
+            SliderSetting("s_max_height", "max_bar_height", 0, 100, step=1,
                           fmt=lambda v: f"{int(v)} %"),
-            StepperSetting("Modo de color", "bars_gradient_mode",
+            StepperSetting("s_bars_colormode", "bars_gradient_mode",
                            BARS_GRADIENT_MODES, BARS_GRADIENT_LABELS),
-            StepperSetting("Alcance color", "bars_gradient_scope",
+            StepperSetting("s_bars_scope", "bars_gradient_scope",
                            BARS_SCOPES, BARS_SCOPE_LABELS),
-            ToggleSetting("Colores propios", "bars_use_custom"),
-            ToggleSetting("Usar carátula", "bars_use_cover"),
-            StepperSetting("Carátula 2 col", "bars_cover_2col",
+            ToggleSetting("s_custom_colors", "bars_use_custom"),
+            ToggleSetting("s_use_cover", "bars_use_cover"),
+            StepperSetting("s_bars_cover2", "bars_cover_2col",
                            BARS_COVER_2, BARS_COVER_2_LABELS),
         ]
 
