@@ -1,7 +1,8 @@
 """Persistencia de la configuracion del visualizador.
 
 Guarda los ajustes en un JSON dentro de la carpeta de config del usuario
-(%APPDATA%\\audioviz\\config.json en Windows). El visualizador lo carga al
+(%APPDATA%\\audioviz\\config.json en Windows; $XDG_CONFIG_HOME/audioviz/config.json
+o ~/.config/audioviz/config.json en Linux). El visualizador lo carga al
 arrancar y lo reescribe cada vez que se cierra el panel de configuracion.
 
 Precedencia de valores (de menor a mayor): DEFAULTS < archivo < flag de CLI.
@@ -25,7 +26,12 @@ from .visualizations.bars import (DEFAULT_BARS_COVER_2, DEFAULT_BARS_GRADIENT,
 from .visualizations.circle_bars import DEFAULT_CENTER, DEFAULT_RADIUS_MULT
 from .visualizations.gradient import DEFAULT_GRADIENT, GRADIENT_MODES
 
-APP_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "audioviz")
+APP_DIR = os.path.join(
+    os.environ.get("APPDATA")
+    or os.environ.get("XDG_CONFIG_HOME")
+    or os.path.join(os.path.expanduser("~"), ".config"),
+    "audioviz",
+)
 CONFIG_PATH = os.path.join(APP_DIR, "config.json")
 
 # Fuentes de audio validas (para sanear un archivo corrupto o editado a mano).
