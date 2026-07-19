@@ -87,40 +87,40 @@ class SettingsPanel:
         audio = [
             # La lista de fuentes se recalcula en vivo: fb2k solo figura si el
             # toggle de abajo esta encendido (available_sources decide).
-            _Row("fuente", Stepper(lambda: eng.source_name, self._set_source,
+            _Row("Fuente", Stepper(lambda: eng.source_name, self._set_source,
                                    lambda: config.available_sources(eng.fb2k_enabled))),
             # fb2k es nicho (levanta su propio servidor WebSocket): oculta por
             # defecto. Encenderlo la agrega a la lista de arriba; apagarlo estando
             # en fb2k devuelve la fuente al default (ver _set_allow_fb2k). fb2k es
             # de Windows (foobar2000): el toggle ni aparece en Linux.
-            _Row("habilitar fb2k", Toggle(lambda: eng.fb2k_enabled, self._set_allow_fb2k),
+            _Row("Usar foobar2000", Toggle(lambda: eng.fb2k_enabled, self._set_allow_fb2k),
                  visible=lambda: is_available("fb2k")),
-            _Row("attack", Slider(lambda: eng.attack_ms,
+            _Row("Subida barras", Slider(lambda: eng.attack_ms,
                                   lambda v: setattr(eng, "attack_ms", v),
                                   1, 500, step=1, fmt=lambda v: f"{int(v)} ms")),
-            _Row("decay", Slider(lambda: eng.decay_ms,
+            _Row("Caída barras", Slider(lambda: eng.decay_ms,
                                  lambda v: setattr(eng, "decay_ms", v),
                                  0, 1000, step=5, fmt=lambda v: f"{int(v)} ms")),
-            _Row("distribucion", Stepper(lambda: eng.distribution,
+            _Row("Reparto bandas", Stepper(lambda: eng.distribution,
                                          lambda v: eng.reconfigure_analysis(distribution=v),
                                          ["log", "octaves"])),
-            _Row("bandas", Slider(lambda: eng.n_bands_req,
+            _Row("Cantidad bandas", Slider(lambda: eng.n_bands_req,
                                   lambda v: eng.reconfigure_analysis(n_bands=v),
                                   8, 256, step=1),
                  visible=lambda: eng.distribution == "log"),
-            _Row("nota grave", Slider(lambda: parse_note(eng.note_lo),
+            _Row("Nota grave", Slider(lambda: parse_note(eng.note_lo),
                                       lambda v: eng.reconfigure_analysis(note_lo=midi_to_name(v)),
                                       12, 138, step=1, fmt=lambda v: midi_to_name(int(v))),
                  visible=lambda: eng.distribution == "octaves"),
-            _Row("nota aguda", Slider(lambda: parse_note(eng.note_hi),
+            _Row("Nota aguda", Slider(lambda: parse_note(eng.note_hi),
                                       lambda v: eng.reconfigure_analysis(note_hi=midi_to_name(v)),
                                       12, 138, step=1, fmt=lambda v: midi_to_name(int(v))),
                  visible=lambda: eng.distribution == "octaves"),
-            _Row("bandas/oct", Slider(lambda: eng.bands_per_octave,
+            _Row("Bandas/octava", Slider(lambda: eng.bands_per_octave,
                                       lambda v: eng.reconfigure_analysis(bands_per_octave=v),
                                       1, 48, step=1),
                  visible=lambda: eng.distribution == "octaves"),
-            _Row("afinacion", Slider(lambda: eng.tuning,
+            _Row("Afinación", Slider(lambda: eng.tuning,
                                      lambda v: eng.reconfigure_analysis(tuning=v),
                                      400, 480, step=0.5, integer=False,
                                      fmt=lambda v: f"{v:.1f} Hz"),
@@ -129,16 +129,23 @@ class SettingsPanel:
 
         # --- pestana VISUAL: presentacion general + que visualizaciones se ven -
         visual = [
-            _Row("metadata", Toggle(lambda: view.show_metadata,
+            _Row("Info de pista", Toggle(lambda: view.show_metadata,
                                     lambda v: setattr(view, "show_metadata", v))),
             # Interruptores maestros de los overlays de texto de la esquina. El
             # detalle de que valores muestra el HUD de datos vive en su propia
             # pestana ("datos"); aca solo se prende/apaga toda la linea.
-            _Row("datos", Toggle(lambda: view.show_hud,
+            _Row("Panel de datos", Toggle(lambda: view.show_hud,
                                  lambda v: setattr(view, "show_hud", v))),
-            _Row("atajos", Toggle(lambda: view.show_keybinds,
+            _Row("Atajos teclado", Toggle(lambda: view.show_keybinds,
                                   lambda v: setattr(view, "show_keybinds", v))),
-            _Row("pantalla", Stepper(lambda: view.fullscreen_display,
+        ]
+
+        # --- pestana VENTANA: comportamiento de la ventana del visualizador ----
+        # Todo lo que afecta a la ventana como tal (a que monitor va la pantalla
+        # completa, marco, siempre-encima); separado de "visual" para que esa
+        # pestana quede enfocada en que se dibuja, no en como se comporta la ventana.
+        ventana = [
+            _Row("Monitor", Stepper(lambda: view.fullscreen_display,
                                      lambda v: setattr(view, "fullscreen_display", v),
                                      list(range(n_disp)), disp_labels),
                  visible=lambda: n_disp > 1),
@@ -148,10 +155,10 @@ class SettingsPanel:
             # redimensionar, asi que ese alto se compensa en vez de perderse). Sin
             # title bar, la ventana se arrastra con clic-y-arrastre en cualquier
             # parte. F11 (pantalla completa) manda por encima de este modo.
-            _Row("sin bordes", Toggle(lambda: view.frameless,
+            _Row("Sin bordes", Toggle(lambda: view.frameless,
                                       lambda v: setattr(view, "frameless", v))),
             # Ventana siempre encima (always-on-top). Tambien con la tecla T.
-            _Row("siempre visible", Toggle(lambda: view.always_on_top,
+            _Row("Siempre encima", Toggle(lambda: view.always_on_top,
                                            lambda v: setattr(view, "always_on_top", v))),
         ]
 
@@ -161,18 +168,18 @@ class SettingsPanel:
         # la paleta de la pista actual); el fallback por defecto, apagado, hace que
         # se pinten los colores crudos extraidos.
         caratula = [
-            _Row("vista", Stepper(lambda: view.thumb_mode,
+            _Row("Vista", Stepper(lambda: view.thumb_mode,
                                   lambda v: setattr(view, "thumb_mode", v),
                                   list(range(len(thumb_mode_labels))), thumb_mode_labels)),
-            _Row("tamano disco", Slider(lambda: view.vinyl_scale,
+            _Row("Tamaño disco", Slider(lambda: view.vinyl_scale,
                                         lambda v: setattr(view, "vinyl_scale", v),
                                         0.3, 1.0, step=0.05, integer=False,
                                         fmt=lambda v: f"{v:.2f}x")),
-            _Row("color estricto", Toggle(lambda: view.palette_strict,
+            _Row("Colores vivos", Toggle(lambda: view.palette_strict,
                                           lambda v: setattr(view, "palette_strict", v))),
-            _Row("color permisivo", Toggle(lambda: view.palette_relaxed,
+            _Row("Incluir grises", Toggle(lambda: view.palette_relaxed,
                                            lambda v: setattr(view, "palette_relaxed", v))),
-            _Row("color fallback", Toggle(lambda: view.palette_default_fallback,
+            _Row("Usar defecto", Toggle(lambda: view.palette_default_fallback,
                                           lambda v: setattr(view, "palette_default_fallback", v))),
         ]
         # --- pestana COLORES: colores base del modo normal (no caratula) -------
@@ -185,13 +192,13 @@ class SettingsPanel:
             return Swatch(get, lambda g=get, s=setr, d=default, t=title:
                           self.picker.open_for(g, s, d, t))
         colores = [
-            _Row("grave", _color_swatch("color_lo", config.DEFAULT_COLOR_LO, "color grave")),
-            _Row("agudo", _color_swatch("color_hi", config.DEFAULT_COLOR_HI, "color agudo")),
-            _Row("3er color", Toggle(lambda: view.color_use_mid,
+            _Row("Grave", _color_swatch("color_lo", config.DEFAULT_COLOR_LO, "Color grave")),
+            _Row("Agudo", _color_swatch("color_hi", config.DEFAULT_COLOR_HI, "Color agudo")),
+            _Row("Usar 3er color", Toggle(lambda: view.color_use_mid,
                                      lambda v: setattr(view, "color_use_mid", v))),
-            _Row("medio", _color_swatch("color_mid", config.DEFAULT_COLOR_MID, "color medio"),
+            _Row("Medio", _color_swatch("color_mid", config.DEFAULT_COLOR_MID, "Color medio"),
                  visible=lambda: view.color_use_mid),
-            _Row("degradado", Stepper(lambda: view.colors_gradient_mode,
+            _Row("Degradado", Stepper(lambda: view.colors_gradient_mode,
                                       lambda v: setattr(view, "colors_gradient_mode", v),
                                       GRADIENT_MODES, GRADIENT_LABELS)),
             _Row(None, GradientPreview(view)),
@@ -204,12 +211,12 @@ class SettingsPanel:
             return Toggle(lambda a=attr: getattr(view, a),
                           lambda v, a=attr: setattr(view, a, v))
         data = [
-            _Row("fuente", _hud("hud_source")),
-            _Row("frecuencia", _hud("hud_rate")),
-            _Row("canales", _hud("hud_channels")),
-            _Row("analisis", _hud("hud_analysis")),
-            _Row("ataque/caida", _hud("hud_ballistics")),
-            _Row("fps", _hud("hud_fps")),
+            _Row("Fuente", _hud("hud_source")),
+            _Row("Muestreo", _hud("hud_rate")),
+            _Row("Canales", _hud("hud_channels")),
+            _Row("Análisis", _hud("hud_analysis")),
+            _Row("Subida/caída", _hud("hud_ballistics")),
+            _Row("FPS", _hud("hud_fps")),
         ]
 
         # Un interruptor por visualizacion registrada. El id se ata por argumento
@@ -222,8 +229,8 @@ class SettingsPanel:
         # (label, filas) por pestana. Las dos fijas primero; luego una por cada
         # visualizacion que declare ajustes propios (settings()).
         self.tabs: list[tuple[str, list[_Row]]] = [
-            ("audio", audio), ("visual", visual), ("caratula", caratula),
-            ("colores", colores), ("datos", data)]
+            ("Audio", audio), ("Visual", visual), ("Ventana", ventana),
+            ("Carátula", caratula), ("Colores", colores), ("Datos", data)]
         for viz in visualizations:
             rows = [self._row_from_spec(spec) for spec in viz.settings()]
             if rows:

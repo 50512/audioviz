@@ -31,7 +31,7 @@ MIN_LEN = 2.0         # largo minimo de barra, para que el anillo nunca desapare
 
 class CircleBarsVisualization(Visualization):
     id = "circle"
-    label = "circulo"
+    label = "Círculo"
     default_on = False
 
     def __init__(self) -> None:
@@ -43,17 +43,17 @@ class CircleBarsVisualization(Visualization):
 
     def settings(self) -> list:
         return [
-            SliderSetting("radio", "circle_radius_mult", 1.0, 3.0, step=0.05,
+            SliderSetting("Radio anillo", "circle_radius_mult", 1.0, 3.0, step=0.05,
                           integer=False, fmt=lambda v: f"{v:.2f}x"),
-            SliderSetting("alto", "circle_max_height", 0, 100, step=1,
+            SliderSetting("Altura máx.", "circle_max_height", 0, 100, step=1,
                           fmt=lambda v: f"{int(v)} %"),
-            SliderSetting("centro", "circle_center", 0, 100, step=1,
+            SliderSetting("Centro vert.", "circle_center", 0, 100, step=1,
                           fmt=lambda v: f"{int(v)} %"),
-            StepperSetting("degradado", "circle_gradient_mode",
+            StepperSetting("Degradado", "circle_gradient_mode",
                            GRADIENT_MODES, GRADIENT_LABELS),
-            ToggleSetting("personalizado", "circle_use_custom"),
-            ToggleSetting("caratula", "circle_use_cover"),
-            ToggleSetting("simetrico", "circle_symmetric"),
+            ToggleSetting("Colores propios", "circle_use_custom"),
+            ToggleSetting("Usar carátula", "circle_use_cover"),
+            ToggleSetting("Simétrico", "circle_symmetric"),
         ]
 
     def _gradient(self, n, stops, mode):

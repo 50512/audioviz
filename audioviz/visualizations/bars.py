@@ -23,7 +23,7 @@ from .gradient import GRADIENT_LABELS, GRADIENT_MODES, build_gradient
 
 # Modo de color: "solid" (colores por canal) + los degradados de gradient.py.
 BARS_GRADIENT_MODES = ["solid"] + GRADIENT_MODES
-BARS_GRADIENT_LABELS = ["solido"] + GRADIENT_LABELS
+BARS_GRADIENT_LABELS = ["sólido"] + GRADIENT_LABELS
 DEFAULT_BARS_GRADIENT = "solid"
 
 # Alcance del degradado (donde se aplica).
@@ -57,7 +57,7 @@ def draw_channel(surf, band_h, rect, color, reverse=False):
 
 class BarsVisualization(Visualization):
     id = "bars"
-    label = "barras"
+    label = "Barras"
     default_on = True
 
     def __init__(self) -> None:
@@ -68,15 +68,15 @@ class BarsVisualization(Visualization):
 
     def settings(self) -> list:
         return [
-            SliderSetting("alto", "max_bar_height", 0, 100, step=1,
+            SliderSetting("Altura máx.", "max_bar_height", 0, 100, step=1,
                           fmt=lambda v: f"{int(v)} %"),
-            StepperSetting("degradado", "bars_gradient_mode",
+            StepperSetting("Modo de color", "bars_gradient_mode",
                            BARS_GRADIENT_MODES, BARS_GRADIENT_LABELS),
-            StepperSetting("aplicar", "bars_gradient_scope",
+            StepperSetting("Alcance color", "bars_gradient_scope",
                            BARS_SCOPES, BARS_SCOPE_LABELS),
-            ToggleSetting("personalizado", "bars_use_custom"),
-            ToggleSetting("caratula", "bars_use_cover"),
-            StepperSetting("2 colores", "bars_cover_2col",
+            ToggleSetting("Colores propios", "bars_use_custom"),
+            ToggleSetting("Usar carátula", "bars_use_cover"),
+            StepperSetting("Carátula 2 col", "bars_cover_2col",
                            BARS_COVER_2, BARS_COVER_2_LABELS),
         ]
 

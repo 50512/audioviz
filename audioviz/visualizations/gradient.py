@@ -22,7 +22,7 @@ import math
 # Modos de degradado. GRADIENT_MODES son los ids estables (flag, estado);
 # GRADIENT_LABELS lo que se ve en el panel. Mismo orden.
 GRADIENT_MODES = ["rgb", "warm", "cool", "oklch"]
-GRADIENT_LABELS = ["rgb", "calido", "frio", "oklch"]
+GRADIENT_LABELS = ["rgb", "cálido", "frío", "oklch"]
 DEFAULT_GRADIENT = "rgb"
 
 

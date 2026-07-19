@@ -35,5 +35,5 @@ SWATCH_BORDER = (120, 128, 150)  # borde de los recuadros de color (swatch/previ
 ROW_H = 34
 TAB_H = 30
 PAD = 16
-LABEL_W = 116
-PANEL_W = 484   # ancho pensado para que las 5 pestanas fijas + las de viz respiren
+LABEL_W = 124
+PANEL_W = 576   # ancho pensado para que las 6 pestanas fijas + las de viz respiren
